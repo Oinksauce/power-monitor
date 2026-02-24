@@ -58,6 +58,12 @@ def _ensure_utc(dt: datetime) -> datetime:
     return dt
 
 
+# Sanity limits: skip intervals that imply impossible consumption
+# (e.g. meter rollover, corruption, or bad data)
+MAX_DELTA_KWH = 100.0  # > 100 kWh in one interval is suspicious
+MAX_KW = 500.0  # > 500 kW sustained is impossible for residential
+
+
 def compute_intervals(readings: Iterable[RawReading]) -> List[IntervalPoint]:
     """Convert cumulative readings into interval energy/power points."""
     readings_list = list(readings)
@@ -72,6 +78,8 @@ def compute_intervals(readings: Iterable[RawReading]) -> List[IntervalPoint]:
         if delta_kwh < 0:
             continue
         kw = delta_kwh / dt_h
+        if delta_kwh > MAX_DELTA_KWH or kw > MAX_KW:
+            continue  # Skip anomalous intervals (rollover, corruption)
         points.append(
             IntervalPoint(
                 timestamp=cur_ts,
