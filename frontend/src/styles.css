@@ -4,6 +4,17 @@
   box-sizing: border-box;
 }
 
+html {
+  /* Reserve scrollbar space so viewport width stays stable when content loads */
+  scrollbar-gutter: stable;
+}
+
+@supports not (scrollbar-gutter: stable) {
+  html {
+    overflow-y: scroll; /* Fallback: always show scrollbar to prevent width jump */
+  }
+}
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -180,6 +191,7 @@ body {
 
 .chart-body {
   margin-top: 0.5rem;
+  min-height: 300px; /* Reserve space to prevent layout jump when chart loads */
 }
 
 .meter-list table {
