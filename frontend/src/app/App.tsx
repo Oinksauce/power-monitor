@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Header } from "../components/Header";
 import { GaugeRow } from "../components/GaugeRow";
 import { UsageChart } from "../components/UsageChart";
@@ -45,6 +45,8 @@ export const App: React.FC = () => {
   }
 
   const activeMeters = meters.filter((m) => m.active);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const fetchIdRef = useRef(0);
 
   async function fetchUsage() {
     if (!activeMeters.length) {
@@ -53,9 +55,12 @@ export const App: React.FC = () => {
       setLoading(false);
       return;
     }
+    fetchAbortRef.current?.abort();
+    const fetchId = ++fetchIdRef.current;
     setLoading(true);
     setUsageError(null);
     const controller = new AbortController();
+    fetchAbortRef.current = controller;
     const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
     try {
       const end = new Date();
@@ -80,6 +85,7 @@ export const App: React.FC = () => {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
+      if (fetchId !== fetchIdRef.current) return;
       if (!res.ok) {
         setUsageError(`Request failed: ${res.status}`);
         setUsage([]);
@@ -89,11 +95,12 @@ export const App: React.FC = () => {
       setUsage(data);
     } catch (err) {
       clearTimeout(timeoutId);
+      if (fetchId !== fetchIdRef.current) return;
       const msg = err instanceof Error ? err.message : "Request failed";
       setUsageError(msg.includes("abort") ? "Request timed out after 60s" : msg);
       setUsage([]);
     } finally {
-      setLoading(false);
+      if (fetchId === fetchIdRef.current) setLoading(false);
     }
   }
 
@@ -103,9 +110,11 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Only re-fetch when range or active meter IDs change (not on every meters poll)
+  const activeMeterIds = activeMeters.map((m) => m.meter_id).sort().join(",");
   useEffect(() => {
     fetchUsage();
-  }, [meters, range]);
+  }, [range, activeMeterIds]);
 
   function handleMeterUpdate(updated: Meter) {
     setMeters((prev) =>
