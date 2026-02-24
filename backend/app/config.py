@@ -16,7 +16,7 @@ class Settings(BaseModel):
     rtltcp_port: int = int(os.getenv("POWER_MONITOR_RTLTCP_PORT", "1234"))
     rtlamr_path: str = os.getenv("POWER_MONITOR_RTLAMR_PATH", "rtlamr")
     rtl_tcp_path: str = os.getenv("POWER_MONITOR_RTL_TCP_PATH", "rtl_tcp")
-    gauge_window_seconds: int = int(os.getenv("POWER_MONITOR_GAUGE_WINDOW_SECONDS", "600"))
+    gauge_window_seconds: int = int(os.getenv("POWER_MONITOR_GAUGE_WINDOW_SECONDS", "1800"))
 
 
 def get_settings() -> Settings:

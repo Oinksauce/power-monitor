@@ -83,11 +83,10 @@ async def list_meters(db: AsyncSession = Depends(get_db)) -> List[MeterOut]:
     result = await db.execute(q)
     rows = result.all()
     meters: List[MeterOut] = []
-    # Compute recent power per meter over trailing 10 minutes by default
+    settings_obj = get_settings()
+    window = timedelta(seconds=settings_obj.gauge_window_seconds)
     for meter, settings, last_ts in rows:
-        current_kw = await get_recent_power_for_meter(
-            db, meter.meter_id, timedelta(minutes=10)
-        )
+        current_kw = await get_recent_power_for_meter(db, meter.meter_id, window)
         meters.append(
             MeterOut(
                 meter_id=meter.meter_id,

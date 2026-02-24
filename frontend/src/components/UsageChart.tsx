@@ -86,7 +86,12 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error }) => {
                 `${value.toFixed(2)} kW`,
                 name
               ]}
-              labelFormatter={(v) => new Date(v).toLocaleString()}
+              labelFormatter={(v) =>
+              new Date(v).toLocaleString(undefined, {
+                dateStyle: "short",
+                timeStyle: "short",
+              })
+            }
             />
             <Legend />
             {series.map((s, idx) => (
