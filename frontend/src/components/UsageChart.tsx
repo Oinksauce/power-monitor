@@ -39,6 +39,8 @@ export const UsageChart: React.FC<Props> = ({ series, loading }) => {
     );
   }, [series]);
 
+  const hasData = merged.length > 0;
+
   return (
     <section className="card chart">
       <div className="card-header">
@@ -46,6 +48,12 @@ export const UsageChart: React.FC<Props> = ({ series, loading }) => {
         {loading && <span className="pill">Loading…</span>}
       </div>
       <div className="chart-body">
+        {!loading && !hasData && (
+          <p style={{ color: "#9ca3af", marginTop: "1rem" }}>
+            No usage data for the selected range. Ensure meters are tracked (checkboxes) and data exists.
+          </p>
+        )}
+        {hasData && (
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={merged}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -80,6 +88,7 @@ export const UsageChart: React.FC<Props> = ({ series, loading }) => {
             ))}
           </LineChart>
         </ResponsiveContainer>
+        )}
       </div>
     </section>
   );

@@ -46,13 +46,14 @@ export const App: React.FC = () => {
   const activeMeters = meters.filter((m) => m.active);
 
   async function fetchUsage() {
-    if (!activeMeters.length) {
+    if (range !== "all" && !activeMeters.length) {
       setUsage([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
     const params = new URLSearchParams({
-      meters: activeMeters.map((m) => m.meter_id).join(","),
+      meters: range === "all" ? "all" : activeMeters.map((m) => m.meter_id).join(","),
       resolution: range === "24h" ? "5m" : range === "7d" ? "15m" : range === "30d" ? "1h" : "1h"
     });
     if (range !== "all") {

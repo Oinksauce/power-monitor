@@ -31,13 +31,42 @@ export const MeterList: React.FC<Props> = ({ meters, onMeterUpdate }) => {
     }
   }
 
+  async function handleTrackAll(active: boolean) {
+    for (const m of meters) {
+      if (m.active === active) continue;
+      await handleToggleTrack(m);
+    }
+  }
+
   return (
     <section className="card meter-list">
       <div className="card-header">
         <h2>Meters</h2>
-        <span className="pill">
-          {meters.filter((m) => m.active).length} of {meters.length} tracked
-        </span>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <span className="pill">
+            {meters.filter((m) => m.active).length} of {meters.length} tracked
+          </span>
+          {meters.length > 0 && (
+            <>
+              <button
+                type="button"
+                className="range-btn"
+                onClick={() => handleTrackAll(true)}
+                title="Track all meters"
+              >
+                Track all
+              </button>
+              <button
+                type="button"
+                className="range-btn"
+                onClick={() => handleTrackAll(false)}
+                title="Untrack all meters"
+              >
+                Untrack all
+              </button>
+            </>
+          )}
+        </div>
       </div>
       {!meters.length ? (
         <p>No meters discovered yet. Run the collector in discovery mode (empty POWER_MONITOR_FILTER_IDS) to see all broadcasting meters.</p>
