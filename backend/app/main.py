@@ -199,36 +199,44 @@ async def get_usage(
 @app.get("/api/usage/debug")
 async def usage_debug(db: AsyncSession = Depends(get_db)) -> dict:
     """Diagnostic: readings per meter, intervals produced, to debug empty chart."""
-    now = datetime.now(timezone.utc)
-    start = now - timedelta(days=1)
-    q = (
-        select(RawReading.meter_id, func.count(RawReading.id).label("cnt"))
-        .where(RawReading.timestamp >= start)
-        .group_by(RawReading.meter_id)
-    )
-    rows = (await db.execute(q)).all()
-    readings_per_meter = {r.meter_id: r.cnt for r in rows}
-
-    # Compute intervals for each meter
-    intervals_per_meter: dict[str, int] = {}
-    for meter_id in readings_per_meter:
-        q2 = (
-            select(RawReading)
-            .where(
-                RawReading.meter_id == meter_id,
-                RawReading.timestamp >= start,
-            )
-            .order_by(RawReading.timestamp)
+    try:
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(days=1)
+        q = (
+            select(RawReading.meter_id, func.count(RawReading.id).label("cnt"))
+            .where(RawReading.timestamp >= start)
+            .group_by(RawReading.meter_id)
         )
-        rrows = (await db.execute(q2)).scalars().all()
-        intervals = compute_intervals(rrows)
-        intervals_per_meter[meter_id] = len(intervals)
+        rows = (await db.execute(q)).all()
+        readings_per_meter = {r.meter_id: r.cnt for r in rows}
 
-    return {
-        "readings_per_meter_24h": readings_per_meter,
-        "intervals_per_meter_24h": intervals_per_meter,
-        "note": "Need 2+ readings and positive delta_kwh for intervals. If intervals=0, chart will be empty.",
-    }
+        # Compute intervals for each meter
+        intervals_per_meter: dict[str, int] = {}
+        for meter_id in readings_per_meter:
+            q2 = (
+                select(RawReading)
+                .where(
+                    RawReading.meter_id == meter_id,
+                    RawReading.timestamp >= start,
+                )
+                .order_by(RawReading.timestamp)
+            )
+            rrows = (await db.execute(q2)).scalars().all()
+            intervals = compute_intervals(rrows)
+            intervals_per_meter[meter_id] = len(intervals)
+
+        return {
+            "readings_per_meter_24h": readings_per_meter,
+            "intervals_per_meter_24h": intervals_per_meter,
+            "note": "Need 2+ readings and positive delta_kwh for intervals. If intervals=0, chart will be empty.",
+        }
+    except Exception as e:
+        import traceback
+
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
 
 
 @app.get("/api/status")
