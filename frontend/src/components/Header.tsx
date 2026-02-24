@@ -1,6 +1,13 @@
 import React from "react";
 
-type RangePreset = "24h" | "7d" | "30d";
+type RangePreset = "24h" | "7d" | "30d" | "all";
+
+const RANGE_LABELS: Record<RangePreset, string> = {
+  "24h": "Last 24h",
+  "7d": "Last 7d",
+  "30d": "Last 30d",
+  all: "All data"
+};
 
 interface Props {
   range: RangePreset;
@@ -17,13 +24,13 @@ export const Header: React.FC<Props> = ({ range, onRangeChange }) => {
       <div className="header-right">
         <span className="label">Range</span>
         <div className="range-toggle">
-          {(["24h", "7d", "30d"] as RangePreset[]).map((r) => (
+          {(["24h", "7d", "30d", "all"] as RangePreset[]).map((r) => (
             <button
               key={r}
               className={r === range ? "range-btn active" : "range-btn"}
               onClick={() => onRangeChange(r)}
             >
-              {r === "24h" ? "Last 24h" : r === "7d" ? "Last 7d" : "Last 30d"}
+              {RANGE_LABELS[r]}
             </button>
           ))}
         </div>

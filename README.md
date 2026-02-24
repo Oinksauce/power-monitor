@@ -90,3 +90,23 @@ cd backend && POWER_MONITOR_DB_PATH=../power_monitor.db python3 import_csv.py ..
 
 Refer to the plan file for more detailed behavior and future enhancements (e.g., WebSocket live updates, auth, additional metrics).
 
+### License
+
+This project is released under the [MIT License](LICENSE).
+
+#### Third-party dependencies
+
+| Component | License |
+|-----------|---------|
+| FastAPI, Pydantic, Uvicorn, SQLAlchemy, aiosqlite, greenlet, python-dateutil | MIT |
+| React, Vite, Recharts | MIT |
+
+#### External tools (used at runtime, not bundled)
+
+| Tool | License | Source |
+|------|---------|--------|
+| rtl-sdr (rtl_tcp) | GPL-2.0 | [Osmocom rtl-sdr](https://osmocom.org/projects/rtl-sdr) |
+| rtlamr | AGPL-3.0 | [bemasher/rtlamr](https://github.com/bemasher/rtlamr) |
+
+These tools are invoked as separate executables. Install them according to their respective documentation.
+
