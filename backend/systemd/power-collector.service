@@ -1,0 +1,17 @@
+[Unit]
+Description=Power Monitor Collector Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/power-monitor/backend
+EnvironmentFile=/etc/power-monitor/collector.env
+ExecStart=/opt/power-monitor/.venv/bin/python -m app.collector.service
+Restart=on-failure
+RestartSec=5
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target
+

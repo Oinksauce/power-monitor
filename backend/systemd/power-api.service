@@ -1,0 +1,17 @@
+[Unit]
+Description=Power Monitor API Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/power-monitor/backend
+EnvironmentFile=/etc/power-monitor/api.env
+ExecStart=/opt/power-monitor/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target
+

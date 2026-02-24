@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import AsyncIterator, List, Optional
+
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from .config import get_settings
+from .database import get_session, init_db
+from .models import Meter, MeterSettings, RawReading
+from .schemas import MeterOut, MeterUpdate, UsageSeries, UsagePoint
+from .usage import compute_intervals, bucket_intervals, get_recent_power_for_meter
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    await init_db()
+    yield
+
+
+app = FastAPI(title="Power Monitor", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+async def get_db() -> AsyncIterator[AsyncSession]:
+    async with get_session() as session:
+        yield session
+
+
+# Serve built frontend from frontend/dist (same origin as API for /api calls)
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+if _FRONTEND_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=_FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/")
+    async def root():
+        return FileResponse(_FRONTEND_DIST / "index.html")
+else:
+
+    @app.get("/", response_class=HTMLResponse)
+    async def root() -> str:
+        return "<html><body><h1>Power Monitor API</h1><p>Build the frontend (npm run build) to serve the dashboard here.</p></body></html>"
+
+
+@app.get("/api/meters", response_model=List[MeterOut])
+async def list_meters(db: AsyncSession = Depends(get_db)) -> List[MeterOut]:
+    subq_last = (
+        select(
+            RawReading.meter_id,
+            func.max(RawReading.timestamp).label("last_ts"),
+        )
+        .group_by(RawReading.meter_id)
+        .subquery()
+    )
+
+    q = (
+        select(Meter, MeterSettings, subq_last.c.last_ts)
+        .select_from(Meter)
+        .join(
+            subq_last,
+            subq_last.c.meter_id == Meter.meter_id,
+            isouter=True,
+        )
+        .join(MeterSettings, MeterSettings.meter_id == Meter.meter_id, isouter=True)
+    )
+
+    result = await db.execute(q)
+    rows = result.all()
+    meters: List[MeterOut] = []
+    # Compute recent power per meter over trailing 10 minutes by default
+    for meter, settings, last_ts in rows:
+        current_kw = await get_recent_power_for_meter(
+            db, meter.meter_id, timedelta(minutes=10)
+        )
+        meters.append(
+            MeterOut(
+                meter_id=meter.meter_id,
+                label=meter.label,
+                active=meter.active,
+                last_seen=last_ts,
+                current_estimated_kw=current_kw,
+                settings=settings,
+            )
+        )
+    return meters
+
+
+@app.put("/api/meters/{meter_id}", response_model=MeterOut)
+async def update_meter(
+    meter_id: str, payload: MeterUpdate, db: AsyncSession = Depends(get_db)
+) -> MeterOut:
+    meter = (
+        await db.execute(select(Meter).where(Meter.meter_id == meter_id))
+    ).scalar_one_or_none()
+    if meter is None:
+        meter = Meter(meter_id=meter_id, label=None, active=True)
+        db.add(meter)
+
+    if payload.label is not None:
+        meter.label = payload.label
+    if payload.active is not None:
+        meter.active = payload.active
+
+    settings = (
+        await db.execute(
+            select(MeterSettings).where(MeterSettings.meter_id == meter_id)
+        )
+    ).scalar_one_or_none()
+    if settings is None:
+        settings = MeterSettings(meter_id=meter_id)
+        db.add(settings)
+
+    if payload.green_max_kw is not None:
+        settings.green_max_kw = payload.green_max_kw
+    if payload.yellow_max_kw is not None:
+        settings.yellow_max_kw = payload.yellow_max_kw
+    if payload.red_max_kw is not None:
+        settings.red_max_kw = payload.red_max_kw
+
+    await db.commit()
+    await db.refresh(meter)
+
+    return MeterOut(
+        meter_id=meter.meter_id,
+        label=meter.label,
+        active=meter.active,
+        last_seen=None,
+        current_estimated_kw=None,
+        settings=settings,
+    )
+
+
+@app.get("/api/usage", response_model=List[UsageSeries])
+async def get_usage(
+    meters: Optional[str] = None,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    resolution: str = "raw",
+    db: AsyncSession = Depends(get_db),
+) -> List[UsageSeries]:
+    meter_ids: Optional[List[str]] = None
+    if meters and meters != "all":
+        meter_ids = [m.strip() for m in meters.split(",") if m.strip()]
+
+    q = select(RawReading).order_by(RawReading.meter_id, RawReading.timestamp)
+    if meter_ids:
+        q = q.where(RawReading.meter_id.in_(meter_ids))
+    if start is not None:
+        q = q.where(RawReading.timestamp >= start)
+    if end is not None:
+        q = q.where(RawReading.timestamp <= end)
+
+    rows = (await db.execute(q)).scalars().all()
+
+    by_meter: dict[str, List[RawReading]] = {}
+    for r in rows:
+        by_meter.setdefault(r.meter_id, []).append(r)
+
+    series_list: List[UsageSeries] = []
+    for meter_id, readings in by_meter.items():
+        intervals = compute_intervals(readings)
+        bucketed = bucket_intervals(intervals, resolution)
+        points: List[UsagePoint] = [
+            UsagePoint(timestamp=ts, kwh=kwh, kw=kw) for ts, kwh, kw in bucketed
+        ]
+        series_list.append(UsageSeries(meter_id=meter_id, points=points))
+
+    return series_list
+
+
+@app.get("/api/status")
+async def status(db: AsyncSession = Depends(get_db)) -> dict:
+    now = datetime.now(timezone.utc)
+    settings = get_settings()
+    last_reading_ts = (
+        await db.execute(select(func.max(RawReading.timestamp)))
+    ).scalar_one_or_none()
+    meter_count = (await db.execute(select(func.count(Meter.id)))).scalar_one()
+    return {
+        "time": now.isoformat(),
+        "database_path": str(settings.database_path),
+        "last_reading": last_reading_ts.isoformat() if last_reading_ts else None,
+        "meter_count": meter_count,
+    }
+
