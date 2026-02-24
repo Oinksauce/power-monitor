@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -157,15 +158,23 @@ async def get_usage(
     if meters and meters != "all":
         meter_ids = [m.strip() for m in meters.split(",") if m.strip()]
 
+    # When no start/end, default to last 90 days to avoid loading entire DB
+    now = datetime.now(timezone.utc)
+    if start is None:
+        start = now - timedelta(days=90)
+    if end is None:
+        end = now
+
     q = select(RawReading).order_by(RawReading.meter_id, RawReading.timestamp)
     if meter_ids:
         q = q.where(RawReading.meter_id.in_(meter_ids))
-    if start is not None:
-        q = q.where(RawReading.timestamp >= start)
-    if end is not None:
-        q = q.where(RawReading.timestamp <= end)
+    q = q.where(RawReading.timestamp >= start, RawReading.timestamp <= end)
 
-    rows = (await db.execute(q)).scalars().all()
+    try:
+        rows = (await db.execute(q)).scalars().all()
+    except Exception as e:
+        logging.exception("Usage query failed: %s", e)
+        raise
 
     by_meter: dict[str, List[RawReading]] = {}
     for r in rows:
@@ -173,12 +182,16 @@ async def get_usage(
 
     series_list: List[UsageSeries] = []
     for meter_id, readings in by_meter.items():
-        intervals = compute_intervals(readings)
-        bucketed = bucket_intervals(intervals, resolution)
-        points: List[UsagePoint] = [
-            UsagePoint(timestamp=ts, kwh=kwh, kw=kw) for ts, kwh, kw in bucketed
-        ]
-        series_list.append(UsageSeries(meter_id=meter_id, points=points))
+        try:
+            intervals = compute_intervals(readings)
+            bucketed = bucket_intervals(intervals, resolution)
+            points: List[UsagePoint] = [
+                UsagePoint(timestamp=ts, kwh=kwh, kw=kw) for ts, kwh, kw in bucketed
+            ]
+            series_list.append(UsageSeries(meter_id=meter_id, points=points))
+        except Exception as e:
+            logging.exception("Usage processing failed for meter %s: %s", meter_id, e)
+            raise
 
     return series_list
 

@@ -31,7 +31,22 @@ def _get_database_url() -> str:
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
-        _engine = create_async_engine(_get_database_url(), future=True, echo=False)
+        _engine = create_async_engine(
+            _get_database_url(),
+            future=True,
+            echo=False,
+            connect_args={"timeout": 15},
+        )
+        # Enable WAL mode for concurrent read/write (API + collector)
+        from sqlalchemy import event
+
+        @event.listens_for(_engine.sync_engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=15000")
+            cursor.close()
+
     return _engine
 
 
