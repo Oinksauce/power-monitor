@@ -239,6 +239,68 @@ async def usage_debug(db: AsyncSession = Depends(get_db)) -> dict:
         }
 
 
+@app.get("/api/usage/anomalies")
+async def usage_anomalies(
+    date: Optional[str] = None,  # e.g. "2026-02-19"
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Find duplicate readings and large intervals that could cause chart spikes."""
+    from sqlalchemy import text
+
+    result: dict = {}
+    try:
+        # Duplicates: same (meter_id, timestamp) with different cumulative_raw
+        dup_q = text("""
+            SELECT meter_id, timestamp, COUNT(*) as cnt, GROUP_CONCAT(cumulative_raw) as vals
+            FROM raw_readings
+            GROUP BY meter_id, timestamp
+            HAVING COUNT(*) > 1
+            ORDER BY cnt DESC
+            LIMIT 20
+        """)
+        dup_rows = (await db.execute(dup_q)).fetchall()
+        result["duplicate_timestamps"] = [
+            {
+                "meter_id": r[0],
+                "timestamp": str(r[1]) if r[1] else None,
+                "count": r[2],
+                "cumulative_values": r[3],
+            }
+            for r in dup_rows
+        ]
+
+        # Large intervals: find meter+date with unusually high kWh
+        if date:
+            start_dt = datetime.fromisoformat(date + "T00:00:00+00:00")
+            end_dt = start_dt + timedelta(days=1)
+            q = (
+                select(RawReading)
+                .where(RawReading.timestamp >= start_dt, RawReading.timestamp < end_dt)
+                .order_by(RawReading.meter_id, RawReading.timestamp)
+            )
+            rows = (await db.execute(q)).scalars().all()
+            by_meter: dict[str, list] = {}
+            for r in rows:
+                by_meter.setdefault(r.meter_id, []).append(r)
+            large: list = []
+            for mid, readings in by_meter.items():
+                intervals = compute_intervals(readings)
+                for p in intervals:
+                    if p.delta_kwh > 50:  # > 50 kWh in one interval is suspicious
+                        large.append({
+                            "meter_id": mid,
+                            "timestamp": p.timestamp.isoformat(),
+                            "delta_kwh": round(p.delta_kwh, 2),
+                            "kw": round(p.kw, 2),
+                        })
+            result["large_intervals"] = sorted(large, key=lambda x: -x["delta_kwh"])[:20]
+        return result
+    except Exception as e:
+        import traceback
+
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
 @app.get("/api/status")
 async def status(db: AsyncSession = Depends(get_db)) -> dict:
     now = datetime.now(timezone.utc)
