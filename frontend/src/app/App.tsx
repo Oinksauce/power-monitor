@@ -35,6 +35,7 @@ export const App: React.FC = () => {
   const [usage, setUsage] = useState<UsageSeries[]>([]);
   const [range, setRange] = useState<RangePreset>("24h");
   const [loading, setLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
 
   async function fetchMeters() {
     const res = await fetch("/api/meters");
@@ -48,33 +49,49 @@ export const App: React.FC = () => {
   async function fetchUsage() {
     if (!activeMeters.length) {
       setUsage([]);
+      setUsageError(null);
       setLoading(false);
       return;
     }
     setLoading(true);
+    setUsageError(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
     try {
+      const end = new Date();
+      let start: Date;
+      if (range === "24h") {
+        start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+      } else if (range === "7d") {
+        start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+      } else if (range === "30d") {
+        start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+      } else {
+        start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000); // All data = 90 days
+      }
       const params = new URLSearchParams({
         meters: activeMeters.map((m) => m.meter_id).join(","),
         resolution:
-          range === "24h" ? "5m" : range === "7d" ? "15m" : range === "30d" ? "1h" : "1d"
+          range === "24h" ? "5m" : range === "7d" ? "15m" : range === "30d" ? "1h" : "1d",
+        start: start.toISOString(),
+        end: end.toISOString(),
       });
-      if (range !== "all") {
-        const end = new Date();
-        let start: Date;
-        if (range === "24h") {
-          start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-        } else if (range === "7d") {
-          start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
-        } else {
-          start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-        }
-        params.set("start", start.toISOString());
-        params.set("end", end.toISOString());
+      const res = await fetch(`/api/usage?${params.toString()}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        setUsageError(`Request failed: ${res.status}`);
+        setUsage([]);
+        return;
       }
-      const res = await fetch(`/api/usage?${params.toString()}`);
-      if (!res.ok) return;
       const data: UsageSeries[] = await res.json();
       setUsage(data);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error ? err.message : "Request failed";
+      setUsageError(msg.includes("abort") ? "Request timed out after 60s" : msg);
+      setUsage([]);
     } finally {
       setLoading(false);
     }
@@ -103,7 +120,7 @@ export const App: React.FC = () => {
       <Header range={range} onRangeChange={setRange} />
       <main className="app-main">
         <GaugeRow meters={activeMeters} />
-        <UsageChart series={usage} loading={loading} />
+        <UsageChart series={usage} loading={loading} error={usageError} />
         <MeterList meters={meters} onMeterUpdate={handleMeterUpdate} />
       </main>
     </div>

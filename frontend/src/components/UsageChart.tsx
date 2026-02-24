@@ -14,9 +14,10 @@ import type { UsageSeries } from "../app/App";
 interface Props {
   series: UsageSeries[];
   loading: boolean;
+  error?: string | null;
 }
 
-export const UsageChart: React.FC<Props> = ({ series, loading }) => {
+export const UsageChart: React.FC<Props> = ({ series, loading, error }) => {
   const merged = React.useMemo(() => {
     const byTs: Record<
       string,
@@ -48,7 +49,12 @@ export const UsageChart: React.FC<Props> = ({ series, loading }) => {
         {loading && <span className="pill">Loading…</span>}
       </div>
       <div className="chart-body">
-        {!loading && !hasData && (
+        {!loading && error && (
+          <p style={{ color: "#f87171", marginTop: "1rem" }}>
+            {error}
+          </p>
+        )}
+        {!loading && !error && !hasData && (
           <p style={{ color: "#9ca3af", marginTop: "1rem" }}>
             No usage data for the selected range. Ensure meters are tracked (checkboxes) and data exists.
           </p>
