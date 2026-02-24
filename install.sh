@@ -95,6 +95,13 @@ echo "Installing Python backend dependencies into virtual environment..."
 "${VENV_DIR}/bin/pip" install --upgrade pip >/dev/null
 "${VENV_DIR}/bin/pip" install -r backend/requirements.txt
 
+if ! command -v sqlite3 >/dev/null 2>&1; then
+  if [[ "${APT_AVAILABLE}" == "true" ]]; then
+    echo "Installing sqlite3 for database inspection..."
+    apt-get install -y sqlite3
+  fi
+fi
+
 if ! command -v npm >/dev/null 2>&1; then
   if [[ "${APT_AVAILABLE}" == "true" ]]; then
     echo "Installing Node.js and npm via apt-get..."
@@ -160,6 +167,9 @@ sed -i "s|/opt/power-monitor|${APP_DIR}|g" /etc/systemd/system/power-collector.s
 # Substitute service user (default in unit files is pi; use SUDO_USER or SERVICE_USER)
 sed -i "s/User=pi/User=${SERVICE_USER}/g" /etc/systemd/system/power-collector.service /etc/systemd/system/power-api.service
 sed -i "s/Group=pi/Group=${SERVICE_USER}/g" /etc/systemd/system/power-collector.service /etc/systemd/system/power-api.service
+
+echo "Setting ownership of ${APP_DIR} to ${SERVICE_USER} (so services can create the database)..."
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}"
 
 echo "Reloading systemd daemon..."
 systemctl daemon-reload
