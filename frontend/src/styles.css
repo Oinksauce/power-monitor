@@ -4,16 +4,6 @@
   box-sizing: border-box;
 }
 
-html {
-  /* Reserve scrollbar space so viewport width stays stable when content loads */
-  scrollbar-gutter: stable;
-}
-
-@supports not (scrollbar-gutter: stable) {
-  html {
-    overflow-y: scroll; /* Fallback: always show scrollbar to prevent width jump */
-  }
-}
 
 body {
   margin: 0;
@@ -226,7 +216,7 @@ body {
   height: 1rem;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 480px) {
   .header {
     flex-direction: column;
     align-items: flex-start;
