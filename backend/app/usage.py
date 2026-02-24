@@ -51,12 +51,21 @@ async def get_recent_power_for_meter(
     return total_kwh / total_hours
 
 
+def _ensure_utc(dt: datetime) -> datetime:
+    """Normalize to UTC-aware; SQLite may return naive datetimes."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def compute_intervals(readings: Iterable[RawReading]) -> List[IntervalPoint]:
     """Convert cumulative readings into interval energy/power points."""
     readings_list = list(readings)
     points: List[IntervalPoint] = []
     for prev, cur in zip(readings_list, readings_list[1:]):
-        dt_h = (cur.timestamp - prev.timestamp).total_seconds() / 3600.0
+        prev_ts = _ensure_utc(prev.timestamp)
+        cur_ts = _ensure_utc(cur.timestamp)
+        dt_h = (cur_ts - prev_ts).total_seconds() / 3600.0
         if dt_h <= 0:
             continue
         delta_kwh = cur.cumulative_kwh - prev.cumulative_kwh
@@ -65,7 +74,7 @@ def compute_intervals(readings: Iterable[RawReading]) -> List[IntervalPoint]:
         kw = delta_kwh / dt_h
         points.append(
             IntervalPoint(
-                timestamp=cur.timestamp,
+                timestamp=cur_ts,
                 delta_kwh=delta_kwh,
                 kw=kw,
             )
