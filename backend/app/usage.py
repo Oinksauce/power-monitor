@@ -109,9 +109,10 @@ def bucket_intervals(
 
     for p in points:
         ts = p.timestamp
-        # Floor to bucket start
+        # Floor to bucket start (minutes since midnight for daily buckets)
+        mins_since_midnight = ts.hour * 60 + ts.minute
         bucket_start = ts - timedelta(
-            minutes=(ts.minute % res_minutes),
+            minutes=(mins_since_midnight % res_minutes),
             seconds=ts.second,
             microseconds=ts.microsecond,
         )
