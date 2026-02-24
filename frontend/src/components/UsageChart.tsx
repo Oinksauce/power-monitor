@@ -74,11 +74,19 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error }) => {
               allowDecimals
             />
             <Tooltip
-              labelFormatter={(v) => new Date(v).toLocaleString()}
+              contentStyle={{
+                backgroundColor: "#0f172a",
+                border: "1px solid #475569",
+                borderRadius: "0.5rem",
+                color: "#ffffff",
+              }}
+              labelStyle={{ color: "#ffffff", fontWeight: 600, marginBottom: "0.5rem" }}
+              itemStyle={{ color: "#e2e8f0" }}
               formatter={(value: number, name: string) => [
                 `${value.toFixed(2)} kW`,
                 name
               ]}
+              labelFormatter={(v) => new Date(v).toLocaleString()}
             />
             <Legend />
             {series.map((s, idx) => (

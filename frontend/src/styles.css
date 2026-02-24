@@ -189,6 +189,23 @@ body {
   width: 100%;
 }
 
+/* Recharts tooltip - ensure readable text on dark background */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: #0f172a !important;
+  border: 1px solid #475569 !important;
+  color: #ffffff !important;
+  padding: 0.75rem 1rem !important;
+}
+
+.recharts-tooltip-wrapper .recharts-default-tooltip .label {
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.recharts-tooltip-wrapper .recharts-default-tooltip .item {
+  color: #e2e8f0 !important;
+}
+
 .meter-list table {
   width: 100%;
   border-collapse: collapse;
