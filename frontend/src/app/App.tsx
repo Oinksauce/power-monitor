@@ -3,6 +3,7 @@ import { Header, type RangePreset } from "../components/Header";
 import { GaugeRow } from "../components/GaugeRow";
 import { UsageChart } from "../components/UsageChart";
 import { UsageByWeekdayChart } from "../components/UsageByWeekdayChart";
+import { UsageByHourChart } from "../components/UsageByHourChart";
 import { MeterList } from "../components/MeterList";
 
 export interface Meter {
@@ -207,6 +208,15 @@ export const App: React.FC = () => {
             <GaugeRow meters={activeMeters} />
             <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
             <UsageByWeekdayChart
+              series={usage}
+              loading={loading}
+              error={usageError}
+              meters={meters}
+              activeMeterCount={activeMeters.length}
+              rangeStart={rangeBounds.start}
+              rangeEnd={rangeBounds.end}
+            />
+            <UsageByHourChart
               series={usage}
               loading={loading}
               error={usageError}
