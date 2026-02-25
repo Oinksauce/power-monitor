@@ -157,12 +157,16 @@ async def get_usage(
     if meters and meters != "all":
         meter_ids = [m.strip() for m in meters.split(",") if m.strip()]
 
-    # When no start/end, default to last 90 days to avoid loading entire DB
-    now = datetime.now(timezone.utc)
+    # Use local time for query - DB stores local timestamps (matches gauge)
+    now_local = datetime.now().astimezone()
     if start is None:
-        start = now - timedelta(days=90)
+        start = (now_local - timedelta(days=90)).replace(tzinfo=None)
+    else:
+        start = start.astimezone().replace(tzinfo=None) if start.tzinfo else start
     if end is None:
-        end = now
+        end = now_local.replace(tzinfo=None)
+    else:
+        end = end.astimezone().replace(tzinfo=None) if end.tzinfo else end
 
     q = select(RawReading).order_by(RawReading.meter_id, RawReading.timestamp)
     if meter_ids:
