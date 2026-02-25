@@ -205,8 +205,8 @@ async def gauge_debug(
     from .usage import get_recent_power_for_meter, compute_intervals
 
     window = timedelta(minutes=window_minutes)
-    now = datetime.now(timezone.utc)
-    start_time = now - window
+    now = datetime.now().astimezone()
+    start_time = (now - window).replace(tzinfo=None)
 
     q = (
         select(RawReading)
@@ -224,8 +224,8 @@ async def gauge_debug(
     return {
         "meter_id": meter_id,
         "window_minutes": window_minutes,
-        "now_utc": now.isoformat(),
-        "start_time_utc": start_time.isoformat(),
+        "now_local": now.isoformat(),
+        "start_time_local": str(start_time),
         "readings_in_window": len(rows),
         "intervals_produced": len(intervals),
         "current_kw": current_kw,

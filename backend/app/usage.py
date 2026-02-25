@@ -22,8 +22,9 @@ async def get_recent_power_for_meter(
     db: AsyncSession, meter_id: str, window: timedelta
 ) -> float | None:
     """Compute average kW for the given meter over a trailing time window."""
-    now = datetime.now(timezone.utc)
-    start_time = now - window
+    # Use local time - SQLite/rtlamr typically store local timestamps
+    now = datetime.now().astimezone()
+    start_time = (now - window).replace(tzinfo=None)  # naive for SQLite comparison
 
     q = (
         select(RawReading)
