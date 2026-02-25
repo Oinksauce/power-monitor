@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
+from ..filter_config import read_filter_ids
 from ..database import get_engine, get_session_factory
 from ..models import Meter, RawReading
 
@@ -111,16 +112,18 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
     # Give rtl_tcp time to initialize
     await asyncio.sleep(7)
 
-    # Prepare rtlamr args (reused when restarting)
-    args = [rtlamr_path, "-format=csv", "-server", f"{host}:{port}"]
-    filter_ids = (os.getenv("POWER_MONITOR_FILTER_IDS") or "").strip()
-    if filter_ids:
-        args.extend(["-filterid", filter_ids])
-    else:
-        logger.info("No filter IDs set; discovery mode (collecting all meters)")
     unique = os.getenv("POWER_MONITOR_UNIQUE", "true").lower()
-    if unique in {"1", "true", "yes"}:
-        args.append("-unique=true")
+    unique_arg = ["-unique=true"] if unique in {"1", "true", "yes"} else []
+
+    def _build_args() -> list[str]:
+        args = [rtlamr_path, "-format=csv", "-server", f"{host}:{port}"]
+        filter_ids_list = read_filter_ids()
+        if filter_ids_list:
+            args.extend(["-filterid", ",".join(filter_ids_list)])
+        else:
+            logger.info("No filter IDs set; discovery mode (collecting all meters)")
+        args.extend(unique_arg)
+        return args
 
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
@@ -137,6 +140,7 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
 
     try:
         while not stop_event.is_set():
+            args = _build_args()
             logger.info("Starting rtlamr with args: %s", " ".join(args))
             rtlamr_proc = await asyncio.create_subprocess_exec(
                 *args,

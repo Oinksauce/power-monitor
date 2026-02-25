@@ -18,6 +18,34 @@ body {
   flex-direction: column;
 }
 
+.tab-nav {
+  display: flex;
+  gap: 0;
+  padding: 0 1.5rem;
+  background: #020617;
+  border-bottom: 1px solid #1f2937;
+}
+
+.tab-btn {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 0.9rem;
+  padding: 0.6rem 1rem;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.tab-btn:hover {
+  color: #e5e7eb;
+}
+
+.tab-btn.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
 .app-main {
   max-width: 1600px;
   margin: 0 auto;

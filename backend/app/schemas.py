@@ -27,6 +27,10 @@ class MeterOut(BaseModel):
         from_attributes = True
 
 
+class FilterIdsUpdate(BaseModel):
+    meter_ids: List[str]
+
+
 class MeterUpdate(BaseModel):
     label: Optional[str] = None
     active: Optional[bool] = None

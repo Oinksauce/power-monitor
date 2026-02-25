@@ -9,6 +9,8 @@ interface Props {
 export const MeterList: React.FC<Props> = ({ meters, onMeterUpdate }) => {
   const [updating, setUpdating] = useState<Set<string>>(new Set());
   const [editingLabel, setEditingLabel] = useState<Record<string, string>>({});
+  const [applyingFilter, setApplyingFilter] = useState(false);
+  const [filterApplied, setFilterApplied] = useState(false);
 
   async function handleToggleTrack(m: Meter) {
     if (updating.has(m.meter_id)) return;
@@ -61,6 +63,25 @@ export const MeterList: React.FC<Props> = ({ meters, onMeterUpdate }) => {
     }
   }
 
+  async function handleApplyFilter() {
+    const selected = meters.filter((m) => m.active).map((m) => m.meter_id);
+    setApplyingFilter(true);
+    setFilterApplied(false);
+    try {
+      const res = await fetch("/api/config/filter-ids", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meter_ids: selected }),
+      });
+      if (res.ok) {
+        setFilterApplied(true);
+        setTimeout(() => setFilterApplied(false), 3000);
+      }
+    } finally {
+      setApplyingFilter(false);
+    }
+  }
+
   return (
     <section className="card meter-list">
       <div className="card-header">
@@ -86,6 +107,15 @@ export const MeterList: React.FC<Props> = ({ meters, onMeterUpdate }) => {
                 title="Untrack all meters"
               >
                 Untrack all
+              </button>
+              <button
+                type="button"
+                className="range-btn active"
+                onClick={handleApplyFilter}
+                disabled={applyingFilter || meters.filter((m) => m.active).length === 0}
+                title="Apply filter: only track these meters going forward (updates collector filter)"
+              >
+                {applyingFilter ? "Applying…" : filterApplied ? "Filter applied" : "Apply filter"}
               </button>
             </>
           )}

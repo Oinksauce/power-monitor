@@ -36,6 +36,7 @@ export const App: React.FC = () => {
   const [range, setRange] = useState<RangePreset>("24h");
   const [loading, setLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "discovery">("dashboard");
 
   async function fetchMeters() {
     const res = await fetch("/api/meters");
@@ -127,10 +128,32 @@ export const App: React.FC = () => {
   return (
     <div className="app-root">
       <Header range={range} onRangeChange={setRange} />
+      <nav className="tab-nav">
+        <button
+          type="button"
+          className={activeTab === "dashboard" ? "tab-btn active" : "tab-btn"}
+          onClick={() => setActiveTab("dashboard")}
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
+          className={activeTab === "discovery" ? "tab-btn active" : "tab-btn"}
+          onClick={() => setActiveTab("discovery")}
+        >
+          Discovery
+        </button>
+      </nav>
       <main className="app-main">
-        <GaugeRow meters={activeMeters} />
-        <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
-        <MeterList meters={meters} onMeterUpdate={handleMeterUpdate} />
+        {activeTab === "dashboard" && (
+          <>
+            <GaugeRow meters={activeMeters} />
+            <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
+          </>
+        )}
+        {activeTab === "discovery" && (
+          <MeterList meters={meters} onMeterUpdate={handleMeterUpdate} />
+        )}
       </main>
     </div>
   );

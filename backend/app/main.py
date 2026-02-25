@@ -15,8 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .database import get_session, init_db
+from .filter_config import get_filter_ids_path, read_filter_ids, write_filter_ids
 from .models import Meter, MeterSettings, RawReading
-from .schemas import MeterOut, MeterUpdate, UsageSeries, UsagePoint
+from .schemas import FilterIdsUpdate, MeterOut, MeterUpdate, UsageSeries, UsagePoint
 from .usage import compute_intervals, bucket_intervals, get_recent_power_for_meter
 
 
@@ -354,6 +355,20 @@ async def usage_anomalies(
         import traceback
 
         return {"error": str(e), "traceback": traceback.format_exc()}
+
+
+@app.get("/api/config/filter-ids")
+async def get_filter_ids() -> dict:
+    """Return current filter IDs (from file or env). Empty = discovery mode."""
+    ids = read_filter_ids()
+    return {"meter_ids": ids}
+
+
+@app.put("/api/config/filter-ids")
+async def put_filter_ids(payload: FilterIdsUpdate) -> dict:
+    """Write selected meter IDs to filter_ids.txt. Collector will use these on next restart."""
+    write_filter_ids(payload.meter_ids)
+    return {"meter_ids": payload.meter_ids}
 
 
 @app.get("/api/status")
