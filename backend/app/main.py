@@ -229,7 +229,9 @@ async def gauge_debug(
             .limit(5)
         )
         recent_any = (await db.execute(q_recent)).scalars().all()
-        recent_ts = [str(r[0]) for r in recent_any]
+        recent_ts = [
+            str(r) if isinstance(r, datetime) else str(r[0]) for r in recent_any
+        ]
         return {
             "meter_id": meter_id,
             "window_minutes": window_minutes,
