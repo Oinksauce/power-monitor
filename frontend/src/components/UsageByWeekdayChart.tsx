@@ -219,7 +219,7 @@ export const UsageByWeekdayChart: React.FC<Props> = ({
         )}
         {!loading && !error && activeMeterCount > 0 && !hasData && (
           <p style={{ color: "#9ca3af", marginTop: "1rem" }}>
-            No usage data for the selected range. Try a different range above or ensure the collector has been running for that period.
+            No usage data for the selected range. Try matching the range to the Consumption Over Time chart above (e.g. 30d) or pick a different range.
           </p>
         )}
         {hasData && (

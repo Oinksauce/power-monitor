@@ -258,6 +258,14 @@ export const App: React.FC = () => {
     weekdayCustomStart,
     weekdayCustomEnd
   );
+  const mainBounds = getRangeBounds(range, customStart, customEnd);
+  const useMainDataForWeekday =
+    weekdayChartRange === range &&
+    (range !== "custom" ||
+      (customStart.getTime() === weekdayCustomStart.getTime() &&
+        customEnd.getTime() === weekdayCustomEnd.getTime()));
+  const weekdaySeriesToShow = useMainDataForWeekday ? usage : weekdayUsage;
+  const weekdayBoundsToShow = useMainDataForWeekday ? mainBounds : weekdayBounds;
 
   return (
     <div className="app-root">
@@ -290,9 +298,9 @@ export const App: React.FC = () => {
             <GaugeRow meters={activeMeters} />
             <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
             <UsageByWeekdayChart
-              series={weekdayUsage}
-              loading={weekdayLoading}
-              error={weekdayError}
+              series={weekdaySeriesToShow}
+              loading={useMainDataForWeekday ? loading : weekdayLoading}
+              error={useMainDataForWeekday ? usageError : weekdayError}
               meters={meters}
               activeMeterCount={activeMeters.length}
               range={weekdayChartRange}
@@ -303,8 +311,8 @@ export const App: React.FC = () => {
                 setWeekdayCustomStart(s);
                 setWeekdayCustomEnd(e);
               }}
-              rangeStart={weekdayBounds.start}
-              rangeEnd={weekdayBounds.end}
+              rangeStart={weekdayBoundsToShow.start}
+              rangeEnd={weekdayBoundsToShow.end}
             />
           </>
         )}
