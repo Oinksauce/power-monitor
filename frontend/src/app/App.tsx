@@ -77,15 +77,7 @@ export const App: React.FC = () => {
   const [customEnd, setCustomEnd] = useState(() => defaultCustomEnd());
   const [loading, setLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
-  const [weekdayChartRange, setWeekdayChartRange] = useState<RangePreset>("30d");
-  const [weekdayCustomStart, setWeekdayCustomStart] = useState(() => defaultCustomStart());
-  const [weekdayCustomEnd, setWeekdayCustomEnd] = useState(() => defaultCustomEnd());
-  const [weekdayUsage, setWeekdayUsage] = useState<UsageSeries[]>([]);
-  const [weekdayLoading, setWeekdayLoading] = useState(false);
-  const [weekdayError, setWeekdayError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"dashboard" | "discovery">("dashboard");
-  const weekdayFetchAbortRef = useRef<AbortController | null>(null);
-  const weekdayFetchIdRef = useRef(0);
 
   async function fetchMeters() {
     const res = await fetch("/api/meters");
@@ -113,25 +105,7 @@ export const App: React.FC = () => {
     fetchAbortRef.current = controller;
     const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
     try {
-      let start: Date;
-      let end: Date;
-      if (range === "custom") {
-        start = new Date(customStart);
-        start.setHours(0, 0, 0, 0);
-        end = new Date(customEnd);
-        end.setHours(23, 59, 59, 999);
-      } else {
-        end = new Date();
-        if (range === "24h") {
-          start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-        } else if (range === "7d") {
-          start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
-        } else if (range === "30d") {
-          start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-        } else {
-          start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000); // All data = 90 days
-        }
-      }
+      const { start, end } = getRangeBounds(range, customStart, customEnd);
       const spanMs = end.getTime() - start.getTime();
       const spanDays = spanMs / (24 * 60 * 60 * 1000);
       const resolution =
@@ -171,59 +145,6 @@ export const App: React.FC = () => {
     }
   }
 
-  async function fetchWeekdayUsage() {
-    if (!activeMeters.length) {
-      setWeekdayUsage([]);
-      setWeekdayError(null);
-      setWeekdayLoading(false);
-      return;
-    }
-    weekdayFetchAbortRef.current?.abort();
-    const fetchId = ++weekdayFetchIdRef.current;
-    setWeekdayLoading(true);
-    setWeekdayError(null);
-    const controller = new AbortController();
-    weekdayFetchAbortRef.current = controller;
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-    try {
-      const { start, end } = getRangeBounds(
-        weekdayChartRange,
-        weekdayCustomStart,
-        weekdayCustomEnd
-      );
-      const spanMs = end.getTime() - start.getTime();
-      const spanDays = spanMs / (24 * 60 * 60 * 1000);
-      const resolution =
-        spanDays <= 1 ? "5m" : spanDays <= 7 ? "15m" : spanDays <= 30 ? "1h" : "1d";
-      const params = new URLSearchParams({
-        meters: activeMeters.map((m) => m.meter_id).join(","),
-        resolution,
-        start: start.toISOString(),
-        end: end.toISOString(),
-      });
-      const res = await fetch(`/api/usage?${params.toString()}`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (fetchId !== weekdayFetchIdRef.current) return;
-      if (!res.ok) {
-        setWeekdayError(`Request failed: ${res.status}`);
-        setWeekdayUsage([]);
-        return;
-      }
-      const data: UsageSeries[] = await res.json();
-      setWeekdayUsage(data);
-    } catch (err) {
-      clearTimeout(timeoutId);
-      if (fetchId !== weekdayFetchIdRef.current) return;
-      const msg = err instanceof Error ? err.message : "Request failed";
-      setWeekdayError(msg.includes("abort") ? "Request timed out after 60s" : msg);
-      setWeekdayUsage([]);
-    } finally {
-      if (fetchId === weekdayFetchIdRef.current) setWeekdayLoading(false);
-    }
-  }
-
   useEffect(() => {
     fetchMeters();
     const interval = setInterval(fetchMeters, 10000);
@@ -240,6 +161,8 @@ export const App: React.FC = () => {
     fetchUsage();
   }, [range, activeMeterIds, customRangeKey]);
 
+  const rangeBounds = getRangeBounds(range, customStart, customEnd);
+
   function handleMeterUpdate(updated: Meter) {
     setMeters((prev) =>
       prev.map((m) =>
@@ -252,20 +175,6 @@ export const App: React.FC = () => {
     setCustomStart(start);
     setCustomEnd(end);
   }
-
-  const weekdayBounds = getRangeBounds(
-    weekdayChartRange,
-    weekdayCustomStart,
-    weekdayCustomEnd
-  );
-  const mainBounds = getRangeBounds(range, customStart, customEnd);
-  const useMainDataForWeekday =
-    weekdayChartRange === range &&
-    (range !== "custom" ||
-      (customStart.getTime() === weekdayCustomStart.getTime() &&
-        customEnd.getTime() === weekdayCustomEnd.getTime()));
-  const weekdaySeriesToShow = useMainDataForWeekday ? usage : weekdayUsage;
-  const weekdayBoundsToShow = useMainDataForWeekday ? mainBounds : weekdayBounds;
 
   return (
     <div className="app-root">
@@ -298,21 +207,13 @@ export const App: React.FC = () => {
             <GaugeRow meters={activeMeters} />
             <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
             <UsageByWeekdayChart
-              series={weekdaySeriesToShow}
-              loading={useMainDataForWeekday ? loading : weekdayLoading}
-              error={useMainDataForWeekday ? usageError : weekdayError}
+              series={usage}
+              loading={loading}
+              error={usageError}
               meters={meters}
               activeMeterCount={activeMeters.length}
-              range={weekdayChartRange}
-              onRangeChange={setWeekdayChartRange}
-              customStart={weekdayCustomStart}
-              customEnd={weekdayCustomEnd}
-              onCustomRangeChange={(s, e) => {
-                setWeekdayCustomStart(s);
-                setWeekdayCustomEnd(e);
-              }}
-              rangeStart={weekdayBoundsToShow.start}
-              rangeEnd={weekdayBoundsToShow.end}
+              rangeStart={rangeBounds.start}
+              rangeEnd={rangeBounds.end}
             />
           </>
         )}

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React from "react";
 import {
   BarChart,
   Bar,
@@ -9,26 +9,9 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import type { RangePreset } from "./Header";
 import type { Meter, UsageSeries } from "../app/App";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-const RANGE_LABELS: Record<Exclude<RangePreset, "custom">, string> = {
-  "24h": "24h",
-  "7d": "7d",
-  "30d": "30d",
-  all: "All",
-};
-
-function toDateString(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-function parseDateString(s: string): Date {
-  const d = new Date(s + "T12:00:00");
-  return isNaN(d.getTime()) ? new Date() : d;
-}
 
 const METER_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#e11d48", "#8b5cf6"];
 
@@ -51,11 +34,6 @@ interface Props {
   error?: string | null;
   meters: Meter[];
   activeMeterCount: number;
-  range: RangePreset;
-  onRangeChange: (range: RangePreset) => void;
-  customStart: Date;
-  customEnd: Date;
-  onCustomRangeChange: (start: Date, end: Date) => void;
   rangeStart: Date;
   rangeEnd: Date;
 }
@@ -66,47 +44,9 @@ export const UsageByWeekdayChart: React.FC<Props> = ({
   error,
   meters,
   activeMeterCount,
-  range,
-  onRangeChange,
-  customStart,
-  customEnd,
-  onCustomRangeChange,
   rangeStart,
   rangeEnd,
 }) => {
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
-  const [localStart, setLocalStart] = useState(toDateString(customStart));
-  const [localEnd, setLocalEnd] = useState(toDateString(customEnd));
-  const pickerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setLocalStart(toDateString(customStart));
-    setLocalEnd(toDateString(customEnd));
-  }, [customStart, customEnd]);
-
-  useEffect(() => {
-    if (!showCustomPicker) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setShowCustomPicker(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showCustomPicker]);
-
-  function handleApplyCustom() {
-    const start = parseDateString(localStart);
-    const end = parseDateString(localEnd);
-    if (start > end) {
-      onCustomRangeChange(end, start);
-    } else {
-      onCustomRangeChange(start, end);
-    }
-    onRangeChange("custom");
-    setShowCustomPicker(false);
-  }
-
   const labelFor = (meterId: string) =>
     meters.find((m) => m.meter_id === meterId)?.label || meterId;
 
@@ -143,70 +83,11 @@ export const UsageByWeekdayChart: React.FC<Props> = ({
     meterIds.some((mid) => (row[mid] as number) > 0)
   );
 
-  const presetRanges: Exclude<RangePreset, "custom">[] = ["24h", "7d", "30d", "all"];
-
   return (
     <section className="card chart">
-      <div className="card-header chart-card-header">
+      <div className="card-header">
         <h2>Average consumption by day of week</h2>
-        <div className="chart-header-controls">
-          {loading && <span className="pill">Loading…</span>}
-          <div className="range-toggle-wrapper">
-            <div className="range-toggle range-toggle-compact">
-              {presetRanges.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  className={r === range ? "range-btn active" : "range-btn"}
-                  onClick={() => onRangeChange(r)}
-                >
-                  {RANGE_LABELS[r]}
-                </button>
-              ))}
-              <div className="custom-range-wrapper" ref={pickerRef}>
-                <button
-                  type="button"
-                  className={range === "custom" ? "range-btn active" : "range-btn"}
-                  onClick={() => setShowCustomPicker((prev) => !prev)}
-                  title="Pick custom date range"
-                >
-                  Custom
-                </button>
-                {showCustomPicker && (
-                  <div className="custom-date-picker">
-                    <div className="custom-date-row">
-                      <label>
-                        <span className="custom-date-label">From</span>
-                        <input
-                          type="date"
-                          value={localStart}
-                          onChange={(e) => setLocalStart(e.target.value)}
-                          className="custom-date-input"
-                        />
-                      </label>
-                      <label>
-                        <span className="custom-date-label">To</span>
-                        <input
-                          type="date"
-                          value={localEnd}
-                          onChange={(e) => setLocalEnd(e.target.value)}
-                          className="custom-date-input"
-                        />
-                      </label>
-                    </div>
-                    <button
-                      type="button"
-                      className="range-btn active custom-apply-btn"
-                      onClick={handleApplyCustom}
-                    >
-                      Apply
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        {loading && <span className="pill">Loading…</span>}
       </div>
       <div className="chart-body">
         {!loading && error && (
@@ -219,7 +100,7 @@ export const UsageByWeekdayChart: React.FC<Props> = ({
         )}
         {!loading && !error && activeMeterCount > 0 && !hasData && (
           <p style={{ color: "#9ca3af", marginTop: "1rem" }}>
-            No usage data for the selected range. Try matching the range to the Consumption Over Time chart above (e.g. 30d) or pick a different range.
+            No usage data for the selected range.
           </p>
         )}
         {hasData && (
