@@ -159,14 +159,11 @@ async def get_usage(
 
     # Use local time for query - DB stores local timestamps (matches gauge)
     now_local = datetime.now().astimezone()
+    end = now_local.replace(tzinfo=None)  # Always use server "now" so chart shows latest data
     if start is None:
         start = (now_local - timedelta(days=90)).replace(tzinfo=None)
     else:
         start = start.astimezone().replace(tzinfo=None) if start.tzinfo else start
-    if end is None:
-        end = now_local.replace(tzinfo=None)
-    else:
-        end = end.astimezone().replace(tzinfo=None) if end.tzinfo else end
 
     q = select(RawReading).order_by(RawReading.meter_id, RawReading.timestamp)
     if meter_ids:
