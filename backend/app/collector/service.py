@@ -96,7 +96,7 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
     host = settings.rtltcp_host
     port = settings.rtltcp_port
 
-    # Start rtl_tcp
+    # Start rtl_tcp (keep running for the whole session)
     logger.info("Starting rtl_tcp on %s:%s", host, port)
     rtl_tcp_proc = await asyncio.create_subprocess_exec(
         rtl_tcp_path,
@@ -111,7 +111,7 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
     # Give rtl_tcp time to initialize
     await asyncio.sleep(7)
 
-    # Prepare rtlamr command
+    # Prepare rtlamr args (reused when restarting)
     args = [rtlamr_path, "-format=csv", "-server", f"{host}:{port}"]
     filter_ids = (os.getenv("POWER_MONITOR_FILTER_IDS") or "").strip()
     if filter_ids:
@@ -122,24 +122,7 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
     if unique in {"1", "true", "yes"}:
         args.append("-unique=true")
 
-    logger.info("Starting rtlamr with args: %s", " ".join(args))
-    rtlamr_proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        # stderr inherits (journal); only stdout has CSV - avoid mixing in log lines
-    )
-
-    async def _shutdown() -> None:
-        logger.info("Shutting down collector processes")
-        for proc in (rtlamr_proc, rtl_tcp_proc):
-            if proc.returncode is None:
-                proc.terminate()
-        await asyncio.gather(
-            *(proc.wait() for proc in (rtlamr_proc, rtl_tcp_proc)), return_exceptions=True
-        )
-
     loop = asyncio.get_running_loop()
-
     stop_event = asyncio.Event()
 
     def _handle_signal(*_: object) -> None:
@@ -152,19 +135,43 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
             # Signals may not be available on some platforms
             pass
 
-    assert rtlamr_proc.stdout is not None
     try:
         while not stop_event.is_set():
-            line_bytes = await rtlamr_proc.stdout.readline()
-            if not line_bytes:
+            logger.info("Starting rtlamr with args: %s", " ".join(args))
+            rtlamr_proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+            )
+            assert rtlamr_proc.stdout is not None
+            try:
+                while not stop_event.is_set():
+                    line_bytes = await rtlamr_proc.stdout.readline()
+                    if not line_bytes:
+                        break
+                    line = line_bytes.decode("utf-8", errors="ignore")
+                    reading = parse_rtlamr_csv_line(line)
+                    if reading is None:
+                        continue
+                    await persist_reading(session, reading)
+            except asyncio.CancelledError:
+                raise
+            finally:
+                if rtlamr_proc.returncode is None:
+                    rtlamr_proc.terminate()
+                    await rtlamr_proc.wait()
+
+            if stop_event.is_set():
                 break
-            line = line_bytes.decode("utf-8", errors="ignore")
-            reading = parse_rtlamr_csv_line(line)
-            if reading is None:
-                continue
-            await persist_reading(session, reading)
+            logger.warning(
+                "rtlamr exited (returncode=%s), restarting in 5s...",
+                rtlamr_proc.returncode,
+            )
+            await asyncio.sleep(5)
     finally:
-        await _shutdown()
+        logger.info("Shutting down collector processes")
+        if rtl_tcp_proc.returncode is None:
+            rtl_tcp_proc.terminate()
+        await rtl_tcp_proc.wait()
 
 
 async def replay_from_csv(csv_path: str) -> None:
