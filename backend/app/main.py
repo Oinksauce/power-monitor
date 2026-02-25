@@ -195,6 +195,45 @@ async def get_usage(
     return series_list
 
 
+@app.get("/api/gauge/debug")
+async def gauge_debug(
+    meter_id: str = "55297873",
+    window_minutes: int = 30,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Debug why gauge shows --: readings in window, intervals, computed kW."""
+    from .usage import get_recent_power_for_meter, compute_intervals
+
+    window = timedelta(minutes=window_minutes)
+    now = datetime.now(timezone.utc)
+    start_time = now - window
+
+    q = (
+        select(RawReading)
+        .where(
+            RawReading.meter_id == meter_id,
+            RawReading.timestamp >= start_time,
+        )
+        .order_by(RawReading.timestamp)
+    )
+    rows = (await db.execute(q)).scalars().all()
+    intervals = compute_intervals(rows) if len(rows) >= 2 else []
+    current_kw = await get_recent_power_for_meter(db, meter_id, window)
+
+    sample_ts = [str(r.timestamp) for r in rows[:5]] if rows else []
+    return {
+        "meter_id": meter_id,
+        "window_minutes": window_minutes,
+        "now_utc": now.isoformat(),
+        "start_time_utc": start_time.isoformat(),
+        "readings_in_window": len(rows),
+        "intervals_produced": len(intervals),
+        "current_kw": current_kw,
+        "sample_timestamps": sample_ts,
+        "note": "Need 2+ readings and positive delta_kwh. Check if timestamps match window (timezone).",
+    }
+
+
 @app.get("/api/usage/debug")
 async def usage_debug(db: AsyncSession = Depends(get_db)) -> dict:
     """Diagnostic: readings per meter, intervals produced, to debug empty chart."""
