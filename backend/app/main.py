@@ -112,7 +112,7 @@ async def update_meter(
         db.add(meter)
 
     if payload.label is not None:
-        meter.label = payload.label
+        meter.label = payload.label.strip() or None
     if payload.active is not None:
         meter.active = payload.active
 

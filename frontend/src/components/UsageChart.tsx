@@ -9,15 +9,18 @@ import {
   Legend,
   ResponsiveContainer
 } from "recharts";
-import type { UsageSeries } from "../app/App";
+import type { Meter, UsageSeries } from "../app/App";
 
 interface Props {
   series: UsageSeries[];
   loading: boolean;
   error?: string | null;
+  meters?: Meter[];
 }
 
-export const UsageChart: React.FC<Props> = ({ series, loading, error }) => {
+export const UsageChart: React.FC<Props> = ({ series, loading, error, meters = [] }) => {
+  const labelFor = (meterId: string) =>
+    meters.find((m) => m.meter_id === meterId)?.label || meterId;
   const merged = React.useMemo(() => {
     const byTs: Record<
       string,
@@ -82,10 +85,10 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error }) => {
               }}
               labelStyle={{ color: "#ffffff", fontWeight: 600, marginBottom: "0.5rem" }}
               itemStyle={{ color: "#e2e8f0" }}
-              formatter={(value: number, name: string) => [
-                `${value.toFixed(2)} kW`,
-                name
-              ]}
+              formatter={(value: number, name: string) => {
+                const meterId = name.replace(/-kw$/, "");
+                return [`${value.toFixed(2)} kW`, labelFor(meterId)];
+              }}
               labelFormatter={(v) =>
               new Date(v).toLocaleString(undefined, {
                 dateStyle: "short",
@@ -99,7 +102,7 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error }) => {
                 key={s.meter_id}
                 type="monotone"
                 dataKey={`${s.meter_id}-kw`}
-                name={s.meter_id}
+                name={labelFor(s.meter_id)}
                 stroke={["#3b82f6", "#f97316", "#22c55e", "#e11d48"][idx % 4]}
                 dot={false}
                 strokeWidth={2}

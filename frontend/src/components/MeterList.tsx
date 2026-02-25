@@ -8,6 +8,7 @@ interface Props {
 
 export const MeterList: React.FC<Props> = ({ meters, onMeterUpdate }) => {
   const [updating, setUpdating] = useState<Set<string>>(new Set());
+  const [editingLabel, setEditingLabel] = useState<Record<string, string>>({});
 
   async function handleToggleTrack(m: Meter) {
     if (updating.has(m.meter_id)) return;
@@ -17,6 +18,28 @@ export const MeterList: React.FC<Props> = ({ meters, onMeterUpdate }) => {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: !m.active }),
+      });
+      if (res.ok) {
+        const updated: Meter = await res.json();
+        onMeterUpdate?.(updated);
+      }
+    } finally {
+      setUpdating((prev) => {
+        const next = new Set(prev);
+        next.delete(m.meter_id);
+        return next;
+      });
+    }
+  }
+
+  async function handleLabelChange(m: Meter, label: string) {
+    if (updating.has(m.meter_id)) return;
+    setUpdating((prev) => new Set(prev).add(m.meter_id));
+    try {
+      const res = await fetch(`/api/meters/${m.meter_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: label.trim() || null }),
       });
       if (res.ok) {
         const updated: Meter = await res.json();
@@ -92,7 +115,38 @@ export const MeterList: React.FC<Props> = ({ meters, onMeterUpdate }) => {
                     title={m.active ? "Stop tracking" : "Track this meter"}
                   />
                 </td>
-                <td>{m.label || "—"}</td>
+                <td>
+                  <input
+                    type="text"
+                    className="meter-label-input"
+                    value={editingLabel[m.meter_id] ?? m.label ?? ""}
+                    onChange={(e) =>
+                      setEditingLabel((prev) => ({
+                        ...prev,
+                        [m.meter_id]: e.target.value,
+                      }))
+                    }
+                    onBlur={(e) => {
+                      const val = e.target.value.trim();
+                      setEditingLabel((prev) => {
+                        const next = { ...prev };
+                        delete next[m.meter_id];
+                        return next;
+                      });
+                      if (val !== (m.label ?? "")) {
+                        handleLabelChange(m, val);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    placeholder="Add nickname…"
+                    disabled={updating.has(m.meter_id)}
+                    title="Click to edit nickname"
+                  />
+                </td>
                 <td><code>{m.meter_id}</code></td>
                 <td>
                   {m.last_seen ? new Date(m.last_seen).toLocaleString() : "—"}

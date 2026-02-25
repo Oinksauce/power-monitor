@@ -119,7 +119,7 @@ export const App: React.FC = () => {
   function handleMeterUpdate(updated: Meter) {
     setMeters((prev) =>
       prev.map((m) =>
-        m.meter_id === updated.meter_id ? { ...m, active: updated.active } : m
+        m.meter_id === updated.meter_id ? { ...m, ...updated } : m
       )
     );
   }
@@ -129,7 +129,7 @@ export const App: React.FC = () => {
       <Header range={range} onRangeChange={setRange} />
       <main className="app-main">
         <GaugeRow meters={activeMeters} />
-        <UsageChart series={usage} loading={loading} error={usageError} />
+        <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
         <MeterList meters={meters} onMeterUpdate={handleMeterUpdate} />
       </main>
     </div>
