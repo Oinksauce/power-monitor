@@ -53,13 +53,16 @@ export const GaugeRow: React.FC<Props> = ({ meters }) => {
           m.current_estimated_kw && max > 0
             ? Math.min(100, (m.current_estimated_kw / max) * 100)
             : 0;
-        let zone = "green";
-        if (m.settings?.yellow_max_kw && m.current_estimated_kw != null) {
-          if (m.current_estimated_kw > (m.settings.red_max_kw ?? max) * 0.9) {
-            zone = "red";
-          } else if (m.current_estimated_kw > m.settings.yellow_max_kw) {
-            zone = "yellow";
-          }
+        const kw = m.current_estimated_kw ?? 0;
+        let zone: "green" | "yellow" | "red" = "green";
+        if (m.settings?.yellow_max_kw != null && kw > 0) {
+          const redThreshold = (m.settings.red_max_kw ?? max) * 0.9;
+          if (kw >= redThreshold) zone = "red";
+          else if (kw > m.settings.yellow_max_kw) zone = "yellow";
+        } else if (kw > 0 && max > 0) {
+          const pctOfMax = (kw / max) * 100;
+          if (pctOfMax > 75) zone = "red";
+          else if (pctOfMax > 40) zone = "yellow";
         }
         return (
           <div key={m.meter_id} className="gauge">
