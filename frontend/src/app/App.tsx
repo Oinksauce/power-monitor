@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Header, type RangePreset } from "../components/Header";
 import { GaugeRow } from "../components/GaugeRow";
 import { UsageChart } from "../components/UsageChart";
+import { UsageByWeekdayChart } from "../components/UsageByWeekdayChart";
 import { MeterList } from "../components/MeterList";
 
 export interface Meter {
@@ -194,6 +195,7 @@ export const App: React.FC = () => {
           <>
             <GaugeRow meters={activeMeters} />
             <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
+            <UsageByWeekdayChart series={usage} loading={loading} error={usageError} />
           </>
         )}
         {activeTab === "discovery" && (
