@@ -109,7 +109,7 @@ async def update_meter(
         await db.execute(select(Meter).where(Meter.meter_id == meter_id))
     ).scalar_one_or_none()
     if meter is None:
-        meter = Meter(meter_id=meter_id, label=None, active=True)
+        meter = Meter(meter_id=meter_id, label=None, active=False)
         db.add(meter)
 
     if payload.label is not None:

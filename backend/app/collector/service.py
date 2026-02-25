@@ -72,7 +72,7 @@ async def persist_reading(session: AsyncSession, reading: ParsedReading) -> None
         await session.execute(select(Meter).where(Meter.meter_id == reading.meter_id))
     ).scalar_one_or_none()
     if meter is None:
-        meter = Meter(meter_id=reading.meter_id, label=None)
+        meter = Meter(meter_id=reading.meter_id, label=None, active=False)
         session.add(meter)
 
     model = RawReading(
