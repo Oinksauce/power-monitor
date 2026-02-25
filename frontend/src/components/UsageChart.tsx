@@ -62,6 +62,12 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error, meters = [
               placeholder="Auto"
               value={yMaxInput}
               onChange={(e) => setYMaxInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
               className={`chart-y-max-input ${!yMaxValid ? "invalid" : ""}`}
               title="Set a fixed Y-axis max to reveal trends when spikes compress the scale. Leave empty for auto."
             />
@@ -81,7 +87,7 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error, meters = [
         )}
         {hasData && (
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={merged}>
+          <LineChart data={merged} key={`domain-${yMaxValid && yMax != null ? yMax : "auto"}`}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="timestamp"
