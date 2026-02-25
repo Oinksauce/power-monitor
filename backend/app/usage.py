@@ -47,9 +47,12 @@ async def get_recent_power_for_meter(
         (points[i].timestamp - points[i - 1].timestamp).total_seconds() / 3600.0
         for i in range(1, len(points))
     )
-    if total_hours <= 0:
-        return None
-    return total_kwh / total_hours
+    if total_hours > 0:
+        return total_kwh / total_hours
+    # Single interval: use its kw directly
+    if len(points) == 1:
+        return points[0].kw
+    return None
 
 
 def _ensure_utc(dt: datetime) -> datetime:
