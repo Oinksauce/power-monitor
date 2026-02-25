@@ -285,6 +285,20 @@ body {
   margin-top: 0.5rem;
 }
 
+.chart-card-header {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chart-card-header .chart-header-controls {
+  flex-wrap: wrap;
+}
+
+.range-toggle-compact .range-btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+}
+
 .chart-header-controls {
   display: flex;
   align-items: center;
