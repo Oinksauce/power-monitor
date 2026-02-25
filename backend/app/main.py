@@ -221,6 +221,15 @@ async def gauge_debug(
     current_kw = await get_recent_power_for_meter(db, meter_id, window)
 
     sample_ts = [str(r.timestamp) for r in rows[:5]] if rows else []
+    # Get most recent readings (no time filter) to see what's actually in DB
+    q_recent = (
+        select(RawReading.timestamp)
+        .where(RawReading.meter_id == meter_id)
+        .order_by(RawReading.timestamp.desc())
+        .limit(5)
+    )
+    recent_any = (await db.execute(q_recent)).scalars().all()
+    recent_ts = [str(r[0]) for r in recent_any]
     return {
         "meter_id": meter_id,
         "window_minutes": window_minutes,
@@ -230,7 +239,8 @@ async def gauge_debug(
         "intervals_produced": len(intervals),
         "current_kw": current_kw,
         "sample_timestamps": sample_ts,
-        "note": "Need 2+ readings and positive delta_kwh. Check if timestamps match window (timezone).",
+        "recent_in_db_any": recent_ts,
+        "note": "recent_in_db_any = latest 5 readings (no time filter). Compare with start_time.",
     }
 
 
