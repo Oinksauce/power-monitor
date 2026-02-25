@@ -121,13 +121,14 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error, meters = [
               }}
               labelStyle={{ color: "#ffffff", fontWeight: 600, marginBottom: "0.5rem" }}
               itemStyle={{ color: "#e2e8f0" }}
-              formatter={(value: number, name: string, props: { payload?: { timestamp?: string } }) => {
-                const meterId = name.replace(/-kw$/, "");
-                const ts = props.payload?.timestamp;
-                const raw = ts ? rawLookup[`${ts}::${meterId}`] : undefined;
+              formatter={(value: number, name: string, item: { payload?: { timestamp?: string }; dataKey?: string }) => {
+                const dataKey = item.dataKey ?? String(name);
+                const meterId = typeof dataKey === "string" ? dataKey.replace(/-kw$/, "") : "";
+                const ts = item.payload?.timestamp;
+                const raw = ts && meterId ? rawLookup[`${ts}::${meterId}`] : undefined;
                 const isCapped = useCappedDomain && raw != null && raw > (yMax ?? 0);
                 const display = isCapped ? `${raw.toFixed(2)} kW (capped at ${yMax})` : `${value.toFixed(2)} kW`;
-                return [display, labelFor(meterId)];
+                return [display, labelFor(meterId) || name];
               }}
               labelFormatter={(v) =>
               new Date(v).toLocaleString(undefined, {
