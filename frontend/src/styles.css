@@ -88,12 +88,79 @@ body {
   color: #9ca3af;
 }
 
+.range-toggle-wrapper {
+  position: relative;
+}
+
 .range-toggle {
   display: inline-flex;
   padding: 2px;
   border-radius: 999px;
   background: #020617;
   border: 1px solid #1f2937;
+}
+
+.custom-range-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.custom-date-picker {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  padding: 1rem;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.custom-date-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.custom-date-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.custom-date-label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.custom-date-input {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  background: #020617;
+  border: 1px solid #1f2937;
+  border-radius: 0.375rem;
+  color: #e5e7eb;
+  min-width: 9.5rem;
+}
+
+.custom-date-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.custom-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.custom-apply-btn {
+  align-self: flex-end;
 }
 
 .range-btn {

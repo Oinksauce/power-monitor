@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Header } from "../components/Header";
+import { Header, type RangePreset } from "../components/Header";
 import { GaugeRow } from "../components/GaugeRow";
 import { UsageChart } from "../components/UsageChart";
 import { MeterList } from "../components/MeterList";
@@ -28,12 +28,25 @@ export interface UsageSeries {
   points: UsagePoint[];
 }
 
-type RangePreset = "24h" | "7d" | "30d" | "all";
+function defaultCustomEnd(): Date {
+  const d = new Date();
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function defaultCustomStart(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
 
 export const App: React.FC = () => {
   const [meters, setMeters] = useState<Meter[]>([]);
   const [usage, setUsage] = useState<UsageSeries[]>([]);
   const [range, setRange] = useState<RangePreset>("24h");
+  const [customStart, setCustomStart] = useState(() => defaultCustomStart());
+  const [customEnd, setCustomEnd] = useState(() => defaultCustomEnd());
   const [loading, setLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"dashboard" | "discovery">("dashboard");
@@ -64,21 +77,38 @@ export const App: React.FC = () => {
     fetchAbortRef.current = controller;
     const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
     try {
-      const end = new Date();
       let start: Date;
-      if (range === "24h") {
-        start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-      } else if (range === "7d") {
-        start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
-      } else if (range === "30d") {
-        start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+      let end: Date;
+      if (range === "custom") {
+        start = new Date(customStart);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(customEnd);
+        end.setHours(23, 59, 59, 999);
       } else {
-        start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000); // All data = 90 days
+        end = new Date();
+        if (range === "24h") {
+          start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+        } else if (range === "7d") {
+          start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+        } else if (range === "30d") {
+          start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+        } else {
+          start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000); // All data = 90 days
+        }
       }
+      const spanMs = end.getTime() - start.getTime();
+      const spanDays = spanMs / (24 * 60 * 60 * 1000);
+      const resolution =
+        spanDays <= 1
+          ? "5m"
+          : spanDays <= 7
+            ? "15m"
+            : spanDays <= 30
+              ? "1h"
+              : "1d";
       const params = new URLSearchParams({
         meters: activeMeters.map((m) => m.meter_id).join(","),
-        resolution:
-          range === "24h" ? "5m" : range === "7d" ? "15m" : range === "30d" ? "1h" : "1d",
+        resolution,
         start: start.toISOString(),
         end: end.toISOString(),
       });
@@ -111,11 +141,15 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Only re-fetch when range or active meter IDs change (not on every meters poll)
+  // Only re-fetch when range, custom dates, or active meter IDs change
   const activeMeterIds = activeMeters.map((m) => m.meter_id).sort().join(",");
+  const customRangeKey =
+    range === "custom"
+      ? `${customStart.toISOString().slice(0, 10)}-${customEnd.toISOString().slice(0, 10)}`
+      : "";
   useEffect(() => {
     fetchUsage();
-  }, [range, activeMeterIds]);
+  }, [range, activeMeterIds, customRangeKey]);
 
   function handleMeterUpdate(updated: Meter) {
     setMeters((prev) =>
@@ -125,9 +159,20 @@ export const App: React.FC = () => {
     );
   }
 
+  function handleCustomRangeChange(start: Date, end: Date) {
+    setCustomStart(start);
+    setCustomEnd(end);
+  }
+
   return (
     <div className="app-root">
-      <Header range={range} onRangeChange={setRange} />
+      <Header
+        range={range}
+        onRangeChange={setRange}
+        customStart={customStart}
+        customEnd={customEnd}
+        onCustomRangeChange={handleCustomRangeChange}
+      />
       <nav className="tab-nav">
         <button
           type="button"
