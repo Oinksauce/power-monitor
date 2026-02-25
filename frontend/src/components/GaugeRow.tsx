@@ -11,17 +11,38 @@ function formatKw(value: number | null | undefined): string {
   return `${value.toFixed(2)} kW`;
 }
 
+function formatLastSeen(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 export const GaugeRow: React.FC<Props> = ({ meters }) => {
   if (!meters.length) {
     return (
       <section className="card gauges">
-        No meters tracked. Select meters to track in the list below.
+        <div className="card-header">
+          <h2>Current Consumption</h2>
+        </div>
+        <p style={{ color: "#9ca3af", margin: 0 }}>
+          No meters tracked. Select meters to track in the list below.
+        </p>
       </section>
     );
   }
 
   return (
     <section className="card gauges">
+      <div className="card-header">
+        <h2>Current Consumption</h2>
+      </div>
+      <div className="gauges-grid">
       {meters.map((m) => {
         const max =
           m.settings?.red_max_kw ??
@@ -55,9 +76,13 @@ export const GaugeRow: React.FC<Props> = ({ meters }) => {
               <span>0 kW</span>
               <span>{max.toFixed(1)} kW</span>
             </div>
+            <div className="gauge-last-seen" title="Last reading">
+              {formatLastSeen(m.last_seen)}
+            </div>
           </div>
         );
       })}
+      </div>
     </section>
   );
 };
