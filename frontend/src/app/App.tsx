@@ -42,6 +42,33 @@ function defaultCustomStart(): Date {
   return d;
 }
 
+function getRangeBounds(
+  range: RangePreset,
+  customStart: Date,
+  customEnd: Date
+): { start: Date; end: Date } {
+  let start: Date;
+  let end: Date;
+  if (range === "custom") {
+    start = new Date(customStart);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(customEnd);
+    end.setHours(23, 59, 59, 999);
+  } else {
+    end = new Date();
+    if (range === "24h") {
+      start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+    } else if (range === "7d") {
+      start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (range === "30d") {
+      start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else {
+      start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
+    }
+  }
+  return { start, end };
+}
+
 export const App: React.FC = () => {
   const [meters, setMeters] = useState<Meter[]>([]);
   const [usage, setUsage] = useState<UsageSeries[]>([]);
@@ -225,6 +252,12 @@ export const App: React.FC = () => {
     setCustomStart(start);
     setCustomEnd(end);
   }
+
+  const weekdayBounds = getRangeBounds(
+    weekdayChartRange,
+    weekdayCustomStart,
+    weekdayCustomEnd
+  );
 
   return (
     <div className="app-root">
