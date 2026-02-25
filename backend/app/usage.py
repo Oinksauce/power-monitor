@@ -55,10 +55,10 @@ async def get_recent_power_for_meter(
     return None
 
 
-def _ensure_utc(dt: datetime) -> datetime:
-    """Normalize to UTC-aware; SQLite may return naive datetimes."""
+def _ensure_local(dt: datetime) -> datetime:
+    """Normalize to timezone-aware; SQLite stores local time, treat naive as local."""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
     return dt
 
 
@@ -73,8 +73,8 @@ def compute_intervals(readings: Iterable[RawReading]) -> List[IntervalPoint]:
     readings_list = list(readings)
     points: List[IntervalPoint] = []
     for prev, cur in zip(readings_list, readings_list[1:]):
-        prev_ts = _ensure_utc(prev.timestamp)
-        cur_ts = _ensure_utc(cur.timestamp)
+        prev_ts = _ensure_local(prev.timestamp)
+        cur_ts = _ensure_local(cur.timestamp)
         dt_h = (cur_ts - prev_ts).total_seconds() / 3600.0
         if dt_h <= 0:
             continue
