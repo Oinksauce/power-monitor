@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     Index,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +27,9 @@ class Meter(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
-    active: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0")
+    )
 
     readings: Mapped[list["RawReading"]] = relationship(back_populates="meter")
 
