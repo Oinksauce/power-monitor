@@ -50,6 +50,7 @@ interface Props {
   loading: boolean;
   error?: string | null;
   meters: Meter[];
+  activeMeterCount: number;
   range: RangePreset;
   onRangeChange: (range: RangePreset) => void;
   customStart: Date;
@@ -64,6 +65,7 @@ export const UsageByWeekdayChart: React.FC<Props> = ({
   loading,
   error,
   meters,
+  activeMeterCount,
   range,
   onRangeChange,
   customStart,
@@ -210,9 +212,14 @@ export const UsageByWeekdayChart: React.FC<Props> = ({
         {!loading && error && (
           <p style={{ color: "#f87171", marginTop: "1rem" }}>{error}</p>
         )}
-        {!loading && !error && !hasData && (
+        {!loading && !error && activeMeterCount === 0 && (
           <p style={{ color: "#9ca3af", marginTop: "1rem" }}>
-            No usage data for the selected range.
+            Select meters to track on the <strong>Discovery</strong> tab to see average consumption by day of week.
+          </p>
+        )}
+        {!loading && !error && activeMeterCount > 0 && !hasData && (
+          <p style={{ color: "#9ca3af", marginTop: "1rem" }}>
+            No usage data for the selected range. Try a different range above or ensure the collector has been running for that period.
           </p>
         )}
         {hasData && (

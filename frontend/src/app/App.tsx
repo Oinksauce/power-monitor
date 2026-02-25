@@ -294,6 +294,7 @@ export const App: React.FC = () => {
               loading={weekdayLoading}
               error={weekdayError}
               meters={meters}
+              activeMeterCount={activeMeters.length}
               range={weekdayChartRange}
               onRangeChange={setWeekdayChartRange}
               customStart={weekdayCustomStart}
