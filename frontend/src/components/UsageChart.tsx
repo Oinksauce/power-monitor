@@ -24,6 +24,16 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error, meters = [
   const yMaxValid = yMax === null || (Number.isFinite(yMax) && yMax > 0);
   const labelFor = (meterId: string) =>
     meters.find((m) => m.meter_id === meterId)?.label || meterId;
+  const useCappedDomain = yMaxValid && yMax != null;
+  const rawLookup = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const s of series) {
+      for (const p of s.points) {
+        m[`${p.timestamp}::${s.meter_id}`] = p.kw;
+      }
+    }
+    return m;
+  }, [series]);
   const merged = React.useMemo(() => {
     const byTs: Record<
       string,
@@ -38,13 +48,15 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error, meters = [
         if (!byTs[key]) {
           byTs[key] = { timestamp: key };
         }
-        byTs[key][`${s.meter_id}-kw`] = p.kw;
+        const val = p.kw;
+        byTs[key][`${s.meter_id}-kw`] =
+          useCappedDomain && val > yMax! ? yMax! : val;
       }
     }
     return Object.values(byTs).sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
-  }, [series]);
+  }, [series, useCappedDomain, yMax]);
 
   const hasData = merged.length > 0;
 
@@ -109,9 +121,13 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error, meters = [
               }}
               labelStyle={{ color: "#ffffff", fontWeight: 600, marginBottom: "0.5rem" }}
               itemStyle={{ color: "#e2e8f0" }}
-              formatter={(value: number, name: string) => {
+              formatter={(value: number, name: string, props: { payload?: { timestamp?: string } }) => {
                 const meterId = name.replace(/-kw$/, "");
-                return [`${value.toFixed(2)} kW`, labelFor(meterId)];
+                const ts = props.payload?.timestamp;
+                const raw = ts ? rawLookup[`${ts}::${meterId}`] : undefined;
+                const isCapped = useCappedDomain && raw != null && raw > (yMax ?? 0);
+                const display = isCapped ? `${raw.toFixed(2)} kW (capped at ${yMax})` : `${value.toFixed(2)} kW`;
+                return [display, labelFor(meterId)];
               }}
               labelFormatter={(v) =>
               new Date(v).toLocaleString(undefined, {
