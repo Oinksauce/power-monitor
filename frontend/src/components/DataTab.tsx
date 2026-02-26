@@ -51,122 +51,40 @@ export const DataTab: React.FC<DataTabProps> = ({
     if (!importFile) return;
     setImporting(true);
     setImportResult(null);
-    setImportProgress(0);
-    setImportStatus(null);
+    setImportStatus("Importing…");
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120_000); // 2 min for large files
-    const form = new FormData();
-    form.append("file", importFile);
-
-    const tryStreaming = async (): Promise<boolean> => {
-      const res = await fetch("/api/import?stream=1", {
+    try {
+      const form = new FormData();
+      form.append("file", importFile);
+      const res = await fetch("/api/import", {
         method: "POST",
         body: form,
         signal: controller.signal,
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setImportResult(data.detail || data.error || `Error ${res.status}`);
-        return true;
-      }
-      const reader = res.body?.getReader();
-      if (!reader) return false;
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() ?? "";
-        for (const chunk of chunks) {
-          const match = chunk.match(/^data: (.+)/m);
-          if (!match) continue;
-          try {
-            const data = JSON.parse(match[1]) as {
-              done?: boolean;
-              progress?: number;
-              imported?: number;
-              skipped?: number;
-              total?: number;
-              inserted?: number;
-              duplicates_ignored?: number;
-              meters_seen?: number;
-            };
-            if (data.done) {
-              setImportProgress(100);
-              setImportResult(formatImportResult(data));
-              setImportStatus(null);
-              setImportFile(null);
-              return true;
-            }
-            const pct = (data.progress ?? 0) * 100;
-            setImportProgress(pct);
-            const total = data.total ?? 0;
-            const imported = data.imported ?? 0;
-            const skipped = data.skipped ?? 0;
-            setImportStatus(
-              total > 0
-                ? `${imported.toLocaleString()} / ${total.toLocaleString()} rows${skipped > 0 ? ` (${skipped} duplicate${skipped === 1 ? "" : "s"} skipped)` : ""}`
-                : "Processing…"
-            );
-          } catch {
-            // ignore parse errors for partial chunks
-          }
-        }
-      }
-      return true;
-    };
-
-    const tryNonStreaming = async () => {
-      setImportStatus("Importing…");
-      const retryForm = new FormData();
-      retryForm.append("file", importFile);
-      const res = await fetch("/api/import", {
-        method: "POST",
-        body: retryForm,
-        signal: controller.signal,
-      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setImportResult(data.detail || data.error || `Error ${res.status}`);
+        const detail = Array.isArray(data.detail) ? data.detail.map((o: { msg?: string }) => o.msg).join(", ") : data.detail ?? data.error;
+        setImportResult(detail || `Error ${res.status}`);
         return;
       }
       setImportResult(formatImportResult(data));
       setImportFile(null);
-    };
-
-    try {
-      const done = await tryStreaming();
-      if (done) return;
-      // Streaming not available (e.g. no reader); fall back to non-streaming
-      await tryNonStreaming();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Import failed";
-      const isNetworkError =
-        msg === "Network Error" ||
-        msg === "Failed to fetch" ||
-        (e instanceof Error && e.name === "AbortError");
-      if (isNetworkError) {
-        try {
-          await tryNonStreaming();
-        } catch (retryErr) {
-          setImportResult(
-            retryErr instanceof Error ? retryErr.message : "Import failed. Check connection and try again."
-          );
-        }
+      if (msg === "Network Error" || msg === "Failed to fetch" || (e instanceof Error && e.name === "AbortError")) {
+        setImportResult("Network error. Is the server running? Try again or use a smaller file.");
       } else {
         setImportResult(msg);
       }
     } finally {
       clearTimeout(timeoutId);
       setImporting(false);
-      setImportProgress(0);
       setImportStatus(null);
     }
   }
 
-  const showProgress = importing && (importProgress > 0 || importStatus !== null);
+  const showProgress = importing && importStatus !== null;
 
   return (
     <div className="data-tab">
