@@ -8,7 +8,7 @@ from typing import AsyncIterator, List, Optional
 
 from fastapi import Depends, FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -367,7 +367,8 @@ async def export_usage_csv(
     """Export raw readings as CSV for the given meters and date range. CSV has columns: meter_id,timestamp,cumulative_raw."""
     meter_ids = [m.strip() for m in (meters or "").split(",") if m.strip()] if meters else None
     if not meter_ids:
-        return {"error": "Specify meters=id1,id2"}
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Specify meters=id1,id2")
     now_local = datetime.now().astimezone()
     end_dt = now_local.replace(tzinfo=None) if (end is None) else (end.astimezone().replace(tzinfo=None) if end.tzinfo else end)
     start_dt = (now_local - timedelta(days=90)).replace(tzinfo=None) if start is None else (start.astimezone().replace(tzinfo=None) if start.tzinfo else start)
@@ -378,15 +379,13 @@ async def export_usage_csv(
         .order_by(RawReading.meter_id, RawReading.timestamp)
     )
     rows = (await db.execute(q)).scalars().all()
-
-    def gen() -> AsyncIterator[bytes]:
-        yield b"meter_id,timestamp,cumulative_raw\n"
-        for r in rows:
-            ts = r.timestamp.isoformat() if r.timestamp.tzinfo else str(r.timestamp)
-            yield f"{r.meter_id},{ts},{r.cumulative_raw}\n".encode("utf-8")
-
-    return StreamingResponse(
-        gen(),
+    lines = ["meter_id,timestamp,cumulative_raw"]
+    for r in rows:
+        ts = r.timestamp.isoformat() if (r.timestamp and getattr(r.timestamp, "tzinfo", None)) else str(r.timestamp)
+        lines.append(f"{r.meter_id},{ts},{r.cumulative_raw}")
+    body = "\n".join(lines).encode("utf-8")
+    return Response(
+        content=body,
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=power_usage_export.csv"},
     )
