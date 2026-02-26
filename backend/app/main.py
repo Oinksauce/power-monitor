@@ -434,8 +434,11 @@ async def _import_csv_stream(
     for mid in meter_ids:
         if mid not in existing_set:
             db.add(Meter(meter_id=mid, label=None, active=False))
-    if meter_ids - existing_set:
-        await db.commit()
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                existing_set.add(mid)
 
     inserted = 0
     skipped = 0
@@ -527,8 +530,12 @@ async def import_csv(
         for mid in meter_ids:
             if mid not in existing_set:
                 db.add(Meter(meter_id=mid, label=None, active=False))
-        if meter_ids - existing_set:
-            await db.commit()
+                try:
+                    await db.commit()
+                except IntegrityError:
+                    await db.rollback()
+                    # Meter was created by another process (e.g. collector) since we queried; ignore
+                    existing_set.add(mid)
 
         inserted = 0
         skipped = 0
