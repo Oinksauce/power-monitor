@@ -43,9 +43,16 @@ export const DataTab: React.FC<DataTabProps> = ({
         setImportResult(data.detail || data.error || `Error ${res.status}`);
         return;
       }
-      setImportResult(
-        `Imported: ${data.inserted ?? 0} rows, skipped: ${data.skipped ?? 0}, meters: ${data.meters_seen ?? 0}`
-      );
+      const inserted = data.inserted ?? 0;
+      const duplicates = data.duplicates_ignored ?? data.skipped ?? 0;
+      const meters = data.meters_seen ?? 0;
+      const parts: string[] = [];
+      parts.push(`${inserted} row${inserted === 1 ? "" : "s"} imported`);
+      if (duplicates > 0) {
+        parts.push(`${duplicates} duplicate row${duplicates === 1 ? "" : "s"} ignored`);
+      }
+      parts.push(`${meters} meter${meters === 1 ? "" : "s"}`);
+      setImportResult(parts.join(". "));
       setImportFile(null);
     } catch (e) {
       setImportResult(e instanceof Error ? e.message : "Import failed");
@@ -77,9 +84,9 @@ export const DataTab: React.FC<DataTabProps> = ({
       <section className="data-section">
         <h2>Import CSV</h2>
         <p>
-          Upload a CSV of raw readings. The supported format is equivalent to the output of the rtlamr tool: (1) meter_id,
-          timestamp, cumulative_raw or (2) rtlamr 8-column (timestamp, …, meter_id,
-          …, cumulative_raw).
+          Upload a CSV of raw readings. Supported: <strong>Export backup format</strong> (same as
+          Export CSV — header <code>meter_id,timestamp,cumulative_raw</code> then data rows) or{" "}
+          <strong>rtlamr format</strong> (8 columns: timestamp, …, meter_id, …, cumulative_raw).
         </p>
         <input
           type="file"

@@ -396,7 +396,7 @@ async def import_csv(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Import raw readings from CSV. Accepts: (1) meter_id,timestamp,cumulative_raw or (2) rtlamr 8-column (col0=ts, col3=meter_id, col7=cumulative_raw)."""
+    """Import raw readings from CSV. Supports: (1) Export format: header 'meter_id,timestamp,cumulative_raw' then data rows; (2) rtlamr 8-column: col0=timestamp, col3=meter_id, col7=cumulative_raw."""
     import csv
     from sqlalchemy.exc import IntegrityError
 
@@ -410,6 +410,9 @@ async def import_csv(
     skipped = 0
     seen_meters: set[str] = set()
     for row in reader:
+        # Skip export-format header line so backup CSVs from Export work cleanly
+        if len(row) >= 3 and str(row[0]).strip().lower() == "meter_id":
+            continue
         if len(row) >= 8:
             try:
                 ts_raw, meter_id, cum = str(row[0]), str(row[3]).strip(), int(row[7])
@@ -441,7 +444,12 @@ async def import_csv(
         except IntegrityError:
             await db.rollback()
             skipped += 1
-    return {"inserted": inserted, "skipped": skipped, "meters_seen": len(seen_meters)}
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "duplicates_ignored": skipped,
+        "meters_seen": len(seen_meters),
+    }
 
 
 @app.get("/api/config/filter-ids")
