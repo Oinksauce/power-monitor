@@ -8,7 +8,7 @@ from typing import AsyncIterator, List, Optional
 
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -355,6 +355,40 @@ async def usage_anomalies(
         import traceback
 
         return {"error": str(e), "traceback": traceback.format_exc()}
+
+
+@app.get("/api/usage/export")
+async def export_usage_csv(
+    meters: Optional[str] = None,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export raw readings as CSV. Query params: meters=id1,id2 (required), start=ISO, end=ISO (optional)."""
+    meter_ids = [m.strip() for m in (meters or "").split(",") if m.strip()] if meters else None
+    if not meter_ids:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Specify meters=id1,id2")
+    now_local = datetime.now().astimezone()
+    end_dt = now_local.replace(tzinfo=None) if end is None else (end.astimezone().replace(tzinfo=None) if end.tzinfo else end)
+    start_dt = (now_local - timedelta(days=90)).replace(tzinfo=None) if start is None else (start.astimezone().replace(tzinfo=None) if start.tzinfo else start)
+    q = (
+        select(RawReading)
+        .where(RawReading.meter_id.in_(meter_ids))
+        .where(RawReading.timestamp >= start_dt, RawReading.timestamp <= end_dt)
+        .order_by(RawReading.meter_id, RawReading.timestamp)
+    )
+    rows = (await db.execute(q)).scalars().all()
+    lines = ["meter_id,timestamp,cumulative_raw"]
+    for r in rows:
+        ts = r.timestamp.isoformat() if (r.timestamp and getattr(r.timestamp, "tzinfo", None)) else str(r.timestamp)
+        lines.append(f"{r.meter_id},{ts},{r.cumulative_raw}")
+    body = "\n".join(lines).encode("utf-8")
+    return Response(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=power_usage_export.csv"},
+    )
 
 
 @app.get("/api/config/filter-ids")
