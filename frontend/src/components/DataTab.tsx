@@ -77,7 +77,7 @@ export const DataTab: React.FC<DataTabProps> = ({
       <section className="data-section">
         <h2>Import CSV</h2>
         <p>
-          Upload a CSV of raw readings. Supported formats: (1) meter_id,
+          Upload a CSV of raw readings. The supported format is equivalent to the output of the rtlamr tool: (1) meter_id,
           timestamp, cumulative_raw or (2) rtlamr 8-column (timestamp, …, meter_id,
           …, cumulative_raw).
         </p>
