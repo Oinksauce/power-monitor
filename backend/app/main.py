@@ -414,6 +414,8 @@ def _parse_import_row(row: list) -> tuple[str, datetime, int] | None:
         ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
     return (meter_id, ts, cum)
 
 
@@ -502,6 +504,15 @@ async def import_csv(
             rows.append((meter_id, ts, cum))
             meter_ids.add(meter_id)
 
+    # No valid rows: avoid empty IN() which can cause DB errors
+    if not rows or not meter_ids:
+        return {
+            "inserted": 0,
+            "skipped": 0,
+            "duplicates_ignored": 0,
+            "meters_seen": 0,
+        }
+
     if stream:
         return StreamingResponse(
             _import_csv_stream(rows, meter_ids, db),
@@ -510,38 +521,24 @@ async def import_csv(
         )
 
     # Non-streaming: ensure meters then batch insert (same logic as stream)
-    existing = (await db.execute(select(Meter.meter_id).where(Meter.meter_id.in_(meter_ids)))).scalars().all()
-    existing_set = {r[0] for r in existing}
-    for mid in meter_ids:
-        if mid not in existing_set:
-            db.add(Meter(meter_id=mid, label=None, active=False))
-    if meter_ids - existing_set:
-        await db.commit()
-
-    inserted = 0
-    skipped = 0
-    batch_size = 500
-    i = 0
-    while i < len(rows):
-        batch = rows[i : i + batch_size]
-        i += len(batch)
-        try:
-            for meter_id, ts, cum in batch:
-                db.add(
-                    RawReading(
-                        meter_id=meter_id,
-                        timestamp=ts,
-                        cumulative_raw=cum,
-                        cumulative_kwh=cum / 100.0,
-                        source="import",
-                    )
-                )
+    try:
+        existing = (await db.execute(select(Meter.meter_id).where(Meter.meter_id.in_(meter_ids)))).scalars().all()
+        existing_set = {r[0] for r in existing}
+        for mid in meter_ids:
+            if mid not in existing_set:
+                db.add(Meter(meter_id=mid, label=None, active=False))
+        if meter_ids - existing_set:
             await db.commit()
-            inserted += len(batch)
-        except IntegrityError:
-            await db.rollback()
-            for meter_id, ts, cum in batch:
-                try:
+
+        inserted = 0
+        skipped = 0
+        batch_size = 500
+        i = 0
+        while i < len(rows):
+            batch = rows[i : i + batch_size]
+            i += len(batch)
+            try:
+                for meter_id, ts, cum in batch:
                     db.add(
                         RawReading(
                             meter_id=meter_id,
@@ -551,17 +548,36 @@ async def import_csv(
                             source="import",
                         )
                     )
-                    await db.commit()
-                    inserted += 1
-                except IntegrityError:
-                    await db.rollback()
-                    skipped += 1
-    return {
-        "inserted": inserted,
-        "skipped": skipped,
-        "duplicates_ignored": skipped,
-        "meters_seen": len(meter_ids),
-    }
+                await db.commit()
+                inserted += len(batch)
+            except IntegrityError:
+                await db.rollback()
+                for meter_id, ts, cum in batch:
+                    try:
+                        db.add(
+                            RawReading(
+                                meter_id=meter_id,
+                                timestamp=ts,
+                                cumulative_raw=cum,
+                                cumulative_kwh=cum / 100.0,
+                                source="import",
+                            )
+                        )
+                        await db.commit()
+                        inserted += 1
+                    except IntegrityError:
+                        await db.rollback()
+                        skipped += 1
+        return {
+            "inserted": inserted,
+            "skipped": skipped,
+            "duplicates_ignored": skipped,
+            "meters_seen": len(meter_ids),
+        }
+    except Exception as e:
+        logging.exception("Import failed: %s", e)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Import failed: {e!s}")
 
 
 @app.get("/api/config/filter-ids")
