@@ -5,7 +5,6 @@ import { UsageChart } from "../components/UsageChart";
 import { UsageByWeekdayChart } from "../components/UsageByWeekdayChart";
 import { UsageByHourChart } from "../components/UsageByHourChart";
 import { MeterList } from "../components/MeterList";
-import { DataTab } from "../components/DataTab";
 
 export interface Meter {
   meter_id: string;
@@ -79,7 +78,7 @@ export const App: React.FC = () => {
   const [customEnd, setCustomEnd] = useState(() => defaultCustomEnd());
   const [loading, setLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "discovery" | "data">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "discovery">("dashboard");
 
   async function fetchMeters() {
     const res = await fetch("/api/meters");
@@ -202,13 +201,6 @@ export const App: React.FC = () => {
         >
           Discovery
         </button>
-        <button
-          type="button"
-          className={activeTab === "data" ? "tab-btn active" : "tab-btn"}
-          onClick={() => setActiveTab("data")}
-        >
-          Data
-        </button>
       </nav>
       <main className="app-main">
         {activeTab === "dashboard" && (
@@ -237,13 +229,6 @@ export const App: React.FC = () => {
         )}
         {activeTab === "discovery" && (
           <MeterList meters={meters} onMeterUpdate={handleMeterUpdate} />
-        )}
-        {activeTab === "data" && (
-          <DataTab
-            activeMeters={activeMeters}
-            rangeStart={rangeBounds.start}
-            rangeEnd={rangeBounds.end}
-          />
         )}
       </main>
     </div>
