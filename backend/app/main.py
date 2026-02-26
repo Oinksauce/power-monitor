@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import AsyncIterator, List, Optional
 
-from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -389,6 +389,59 @@ async def export_usage_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=power_usage_export.csv"},
     )
+
+
+@app.post("/api/import")
+async def import_csv(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Import raw readings from CSV. Accepts: (1) meter_id,timestamp,cumulative_raw or (2) rtlamr 8-column (col0=ts, col3=meter_id, col7=cumulative_raw)."""
+    import csv
+    from sqlalchemy.exc import IntegrityError
+
+    content = await file.read()
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"error": "File must be UTF-8 encoded"}
+    reader = csv.reader(text.splitlines())
+    inserted = 0
+    skipped = 0
+    seen_meters: set[str] = set()
+    for row in reader:
+        if len(row) >= 8:
+            try:
+                ts_raw, meter_id, cum = str(row[0]), str(row[3]).strip(), int(row[7])
+            except (ValueError, IndexError):
+                continue
+        elif len(row) >= 3:
+            try:
+                meter_id, ts_raw, cum = str(row[0]).strip(), str(row[1]), int(row[2])
+            except (ValueError, IndexError):
+                continue
+        else:
+            continue
+        if not meter_id:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if meter_id not in seen_meters:
+            existing = (await db.execute(select(Meter).where(Meter.meter_id == meter_id))).scalar_one_or_none()
+            if existing is None:
+                db.add(Meter(meter_id=meter_id, label=None, active=False))
+            seen_meters.add(meter_id)
+        r = RawReading(meter_id=meter_id, timestamp=ts, cumulative_raw=cum, cumulative_kwh=cum / 100.0, source="import")
+        db.add(r)
+        try:
+            await db.commit()
+            inserted += 1
+        except IntegrityError:
+            await db.rollback()
+            skipped += 1
+    return {"inserted": inserted, "skipped": skipped, "meters_seen": len(seen_meters)}
 
 
 @app.get("/api/config/filter-ids")
