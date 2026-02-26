@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -8,7 +9,7 @@ from typing import AsyncIterator, List, Optional
 
 from fastapi import Depends, FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -391,12 +392,98 @@ async def export_usage_csv(
     )
 
 
+def _parse_import_row(row: list) -> tuple[str, datetime, int] | None:
+    """Parse a CSV row into (meter_id, timestamp, cumulative_raw) or None."""
+    if len(row) >= 3 and str(row[0]).strip().lower() == "meter_id":
+        return None
+    if len(row) >= 8:
+        try:
+            ts_raw, meter_id, cum = str(row[0]), str(row[3]).strip(), int(row[7])
+        except (ValueError, IndexError):
+            return None
+    elif len(row) >= 3:
+        try:
+            meter_id, ts_raw, cum = str(row[0]).strip(), str(row[1]), int(row[2])
+        except (ValueError, IndexError):
+            return None
+    else:
+        return None
+    if not meter_id:
+        return None
+    try:
+        ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return (meter_id, ts, cum)
+
+
+async def _import_csv_stream(
+    rows: list[tuple[str, datetime, int]],
+    meter_ids: set[str],
+    db: AsyncSession,
+    batch_size: int = 500,
+) -> AsyncIterator[str]:
+    """Yield SSE progress events during import, then final result."""
+    from sqlalchemy.exc import IntegrityError
+
+    total = len(rows)
+    existing = (await db.execute(select(Meter.meter_id).where(Meter.meter_id.in_(meter_ids)))).scalars().all()
+    existing_set = {r[0] for r in existing}
+    for mid in meter_ids:
+        if mid not in existing_set:
+            db.add(Meter(meter_id=mid, label=None, active=False))
+    if meter_ids - existing_set:
+        await db.commit()
+
+    inserted = 0
+    skipped = 0
+    i = 0
+    while i < len(rows):
+        batch = rows[i : i + batch_size]
+        i += len(batch)
+        try:
+            for meter_id, ts, cum in batch:
+                db.add(
+                    RawReading(
+                        meter_id=meter_id,
+                        timestamp=ts,
+                        cumulative_raw=cum,
+                        cumulative_kwh=cum / 100.0,
+                        source="import",
+                    )
+                )
+            await db.commit()
+            inserted += len(batch)
+        except IntegrityError:
+            await db.rollback()
+            for meter_id, ts, cum in batch:
+                try:
+                    db.add(
+                        RawReading(
+                            meter_id=meter_id,
+                            timestamp=ts,
+                            cumulative_raw=cum,
+                            cumulative_kwh=cum / 100.0,
+                            source="import",
+                        )
+                    )
+                    await db.commit()
+                    inserted += 1
+                except IntegrityError:
+                    await db.rollback()
+                    skipped += 1
+        progress = i / total if total else 1.0
+        yield f"data: {json.dumps({'progress': progress, 'imported': inserted, 'skipped': skipped, 'total': total})}\n\n"
+    yield f"data: {json.dumps({'done': True, 'inserted': inserted, 'skipped': skipped, 'duplicates_ignored': skipped, 'meters_seen': len(meter_ids)})}\n\n"
+
+
 @app.post("/api/import")
 async def import_csv(
     file: UploadFile = File(...),
+    stream: bool = False,
     db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Import raw readings from CSV. Supports: (1) Export format: header 'meter_id,timestamp,cumulative_raw' then data rows; (2) rtlamr 8-column: col0=timestamp, col3=meter_id, col7=cumulative_raw."""
+):
+    """Import raw readings from CSV. Supports: (1) Export format: header 'meter_id,timestamp,cumulative_raw' then data rows; (2) rtlamr 8-column. Use ?stream=1 for SSE progress."""
     import csv
     from sqlalchemy.exc import IntegrityError
 
@@ -406,49 +493,74 @@ async def import_csv(
     except UnicodeDecodeError:
         return {"error": "File must be UTF-8 encoded"}
     reader = csv.reader(text.splitlines())
+    rows: list[tuple[str, datetime, int]] = []
+    meter_ids: set[str] = set()
+    for row in reader:
+        parsed = _parse_import_row(row)
+        if parsed is not None:
+            meter_id, ts, cum = parsed
+            rows.append((meter_id, ts, cum))
+            meter_ids.add(meter_id)
+
+    if stream:
+        return StreamingResponse(
+            _import_csv_stream(rows, meter_ids, db),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Non-streaming: ensure meters then batch insert (same logic as stream)
+    existing = (await db.execute(select(Meter.meter_id).where(Meter.meter_id.in_(meter_ids)))).scalars().all()
+    existing_set = {r[0] for r in existing}
+    for mid in meter_ids:
+        if mid not in existing_set:
+            db.add(Meter(meter_id=mid, label=None, active=False))
+    if meter_ids - existing_set:
+        await db.commit()
+
     inserted = 0
     skipped = 0
-    seen_meters: set[str] = set()
-    for row in reader:
-        # Skip export-format header line so backup CSVs from Export work cleanly
-        if len(row) >= 3 and str(row[0]).strip().lower() == "meter_id":
-            continue
-        if len(row) >= 8:
-            try:
-                ts_raw, meter_id, cum = str(row[0]), str(row[3]).strip(), int(row[7])
-            except (ValueError, IndexError):
-                continue
-        elif len(row) >= 3:
-            try:
-                meter_id, ts_raw, cum = str(row[0]).strip(), str(row[1]), int(row[2])
-            except (ValueError, IndexError):
-                continue
-        else:
-            continue
-        if not meter_id:
-            continue
+    batch_size = 500
+    i = 0
+    while i < len(rows):
+        batch = rows[i : i + batch_size]
+        i += len(batch)
         try:
-            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            continue
-        if meter_id not in seen_meters:
-            existing = (await db.execute(select(Meter).where(Meter.meter_id == meter_id))).scalar_one_or_none()
-            if existing is None:
-                db.add(Meter(meter_id=meter_id, label=None, active=False))
-            seen_meters.add(meter_id)
-        r = RawReading(meter_id=meter_id, timestamp=ts, cumulative_raw=cum, cumulative_kwh=cum / 100.0, source="import")
-        db.add(r)
-        try:
+            for meter_id, ts, cum in batch:
+                db.add(
+                    RawReading(
+                        meter_id=meter_id,
+                        timestamp=ts,
+                        cumulative_raw=cum,
+                        cumulative_kwh=cum / 100.0,
+                        source="import",
+                    )
+                )
             await db.commit()
-            inserted += 1
+            inserted += len(batch)
         except IntegrityError:
             await db.rollback()
-            skipped += 1
+            for meter_id, ts, cum in batch:
+                try:
+                    db.add(
+                        RawReading(
+                            meter_id=meter_id,
+                            timestamp=ts,
+                            cumulative_raw=cum,
+                            cumulative_kwh=cum / 100.0,
+                            source="import",
+                        )
+                    )
+                    await db.commit()
+                    inserted += 1
+                except IntegrityError:
+                    await db.rollback()
+                    skipped += 1
     return {
         "inserted": inserted,
         "skipped": skipped,
         "duplicates_ignored": skipped,
-        "meters_seen": len(seen_meters),
+        "meters_seen": len(meter_ids),
     }
 
 

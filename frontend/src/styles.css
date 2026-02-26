@@ -468,6 +468,31 @@ body {
   cursor: pointer;
 }
 
+.data-import-progress {
+  margin-top: 0.75rem;
+  max-width: 24rem;
+}
+
+.data-import-progress-bar {
+  height: 0.5rem;
+  background: #1f2937;
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.data-import-progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 0.25rem;
+  transition: width 0.15s ease-out;
+}
+
+.data-import-status {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
 @media (max-width: 480px) {
   .header {
     flex-direction: column;
