@@ -392,6 +392,28 @@ async def export_usage_csv(
     )
 
 
+def _parse_timestamp(ts_raw: str) -> datetime | None:
+    """Parse ISO timestamp; truncate to 6 fractional digits for fromisoformat (e.g. rtlamr output)."""
+    try:
+        ts_raw = ts_raw.strip().replace("Z", "+00:00")
+        if "." in ts_raw:
+            base, rest = ts_raw.split(".", 1)
+            digits = ""
+            tz_part = ""
+            for c in rest:
+                if c.isdigit():
+                    digits += c
+                else:
+                    tz_part = rest[len(digits) :]
+                    break
+            frac = (digits[:6] + "000000")[:6]
+            ts_raw = f"{base}.{frac}{tz_part}"
+        ts = datetime.fromisoformat(ts_raw)
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 def _parse_import_row(row: list) -> tuple[str, datetime, int] | None:
     """Parse a CSV row into (meter_id, timestamp, cumulative_raw) or None."""
     if len(row) >= 3 and str(row[0]).strip().lower() == "meter_id":
@@ -399,23 +421,20 @@ def _parse_import_row(row: list) -> tuple[str, datetime, int] | None:
     if len(row) >= 8:
         try:
             ts_raw, meter_id, cum = str(row[0]), str(row[3]).strip(), int(row[7])
-        except (ValueError, IndexError):
+        except (ValueError, IndexError, OverflowError):
             return None
     elif len(row) >= 3:
         try:
             meter_id, ts_raw, cum = str(row[0]).strip(), str(row[1]), int(row[2])
-        except (ValueError, IndexError):
+        except (ValueError, IndexError, OverflowError):
             return None
     else:
         return None
     if not meter_id:
         return None
-    try:
-        ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
+    ts = _parse_timestamp(ts_raw)
+    if ts is None:
         return None
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
     return (meter_id, ts, cum)
 
 
@@ -490,41 +509,45 @@ async def import_csv(
 ):
     """Import raw readings from CSV. Supports: (1) Export format: header 'meter_id,timestamp,cumulative_raw' then data rows; (2) rtlamr 8-column. Use ?stream=1 for SSE progress."""
     import csv
+    from fastapi import HTTPException
     from sqlalchemy.exc import IntegrityError
 
-    content = await file.read()
     try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        return {"error": "File must be UTF-8 encoded"}
-    reader = csv.reader(text.splitlines())
-    rows: list[tuple[str, datetime, int]] = []
-    meter_ids: set[str] = set()
-    for row in reader:
-        parsed = _parse_import_row(row)
-        if parsed is not None:
-            meter_id, ts, cum = parsed
-            rows.append((meter_id, ts, cum))
-            meter_ids.add(meter_id)
+        content = await file.read()
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                text = content.decode("utf-8-sig")  # strip BOM if present
+            except Exception:
+                return {"error": "File must be UTF-8 encoded"}
+        reader = csv.reader(text.splitlines())
+        rows: list[tuple[str, datetime, int]] = []
+        meter_ids: set[str] = set()
+        for row in reader:
+            parsed = _parse_import_row(row)
+            if parsed is not None:
+                meter_id, ts, cum = parsed
+                rows.append((meter_id, ts, cum))
+                meter_ids.add(meter_id)
 
-    # No valid rows: avoid empty IN() which can cause DB errors
-    if not rows or not meter_ids:
-        return {
-            "inserted": 0,
-            "skipped": 0,
-            "duplicates_ignored": 0,
-            "meters_seen": 0,
-        }
+        # No valid rows: avoid empty IN() which can cause DB errors
+        if not rows or not meter_ids:
+            return {
+                "inserted": 0,
+                "skipped": 0,
+                "duplicates_ignored": 0,
+                "meters_seen": 0,
+            }
 
-    if stream:
-        return StreamingResponse(
-            _import_csv_stream(rows, meter_ids, db),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        if stream:
+            return StreamingResponse(
+                _import_csv_stream(rows, meter_ids, db),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
 
-    # Non-streaming: ensure meters then batch insert (same logic as stream)
-    try:
+        # Non-streaming: ensure meters then batch insert (same logic as stream)
         existing = (await db.execute(select(Meter.meter_id).where(Meter.meter_id.in_(meter_ids)))).scalars().all()
         existing_set = {r[0] for r in existing}
         for mid in meter_ids:
@@ -534,7 +557,6 @@ async def import_csv(
                     await db.commit()
                 except IntegrityError:
                     await db.rollback()
-                    # Meter was created by another process (e.g. collector) since we queried; ignore
                     existing_set.add(mid)
 
         inserted = 0
@@ -581,9 +603,10 @@ async def import_csv(
             "duplicates_ignored": skipped,
             "meters_seen": len(meter_ids),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logging.exception("Import failed: %s", e)
-        from fastapi import HTTPException
         raise HTTPException(status_code=500, detail=f"Import failed: {e!s}")
 
 
