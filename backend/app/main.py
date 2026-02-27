@@ -1,21 +1,27 @@
 from __future__ import annotations
 
+import asyncio
+import csv
 import json
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List, Optional
 
 from fastapi import Depends, FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .database import get_session, init_db
+
+# In-memory import job status (job_id -> { status, result?, error? })
+_import_jobs: dict[str, dict[str, Any]] = {}
 from .filter_config import get_filter_ids_path, read_filter_ids, write_filter_ids
 from .models import Meter, MeterSettings, RawReading
 from .schemas import FilterIdsUpdate, MeterOut, MeterUpdate, UsageSeries, UsagePoint
@@ -438,6 +444,106 @@ def _parse_import_row(row: list) -> tuple[str, datetime, int] | None:
     return (meter_id, ts, cum)
 
 
+async def _do_import_content(content: bytes) -> dict[str, Any]:
+    """Parse CSV bytes and insert into DB; returns result dict. Uses its own session."""
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            text = content.decode("utf-8-sig")
+        except Exception:
+            return {"error": "File must be UTF-8 encoded"}
+    reader = csv.reader(text.splitlines())
+    rows: list[tuple[str, datetime, int]] = []
+    meter_ids: set[str] = set()
+    for row in reader:
+        parsed = _parse_import_row(row)
+        if parsed is not None:
+            meter_id, ts, cum = parsed
+            rows.append((meter_id, ts, cum))
+            meter_ids.add(meter_id)
+    if not rows or not meter_ids:
+        return {"inserted": 0, "skipped": 0, "duplicates_ignored": 0, "meters_seen": 0}
+
+    async with get_session() as db:
+        existing = (await db.execute(select(Meter.meter_id).where(Meter.meter_id.in_(meter_ids)))).scalars().all()
+        existing_set = {r[0] for r in existing}
+        for mid in meter_ids:
+            if mid not in existing_set:
+                db.add(Meter(meter_id=mid, label=None, active=False))
+                try:
+                    await db.commit()
+                except IntegrityError:
+                    await db.rollback()
+                    existing_set.add(mid)
+        inserted = 0
+        skipped = 0
+        batch_size = 500
+        i = 0
+        while i < len(rows):
+            batch = rows[i : i + batch_size]
+            i += len(batch)
+            try:
+                for meter_id, ts, cum in batch:
+                    db.add(
+                        RawReading(
+                            meter_id=meter_id,
+                            timestamp=ts,
+                            cumulative_raw=cum,
+                            cumulative_kwh=cum / 100.0,
+                            source="import",
+                        )
+                    )
+                await db.commit()
+                inserted += len(batch)
+            except IntegrityError:
+                await db.rollback()
+                for meter_id, ts, cum in batch:
+                    try:
+                        db.add(
+                            RawReading(
+                                meter_id=meter_id,
+                                timestamp=ts,
+                                cumulative_raw=cum,
+                                cumulative_kwh=cum / 100.0,
+                                source="import",
+                            )
+                        )
+                        await db.commit()
+                        inserted += 1
+                    except IntegrityError:
+                        await db.rollback()
+                        skipped += 1
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "duplicates_ignored": skipped,
+        "meters_seen": len(meter_ids),
+    }
+
+
+async def _run_import_job(job_id: str, temp_path: Path) -> None:
+    """Background task: hold import lock, run import from temp file, update job status."""
+    settings = get_settings()
+    lock_path = settings.import_lock_path
+    lock_path.touch()
+    try:
+        content = temp_path.read_bytes()
+        result = await _do_import_content(content)
+        if "error" in result:
+            _import_jobs[job_id] = {"status": "failed", "error": result["error"]}
+        else:
+            _import_jobs[job_id] = {"status": "completed", "result": result}
+    except Exception as e:
+        logging.exception("Import job %s failed: %s", job_id, e)
+        _import_jobs[job_id] = {"status": "failed", "error": str(e)}
+    finally:
+        lock_path.unlink(missing_ok=True)
+        temp_path.unlink(missing_ok=True)
+
+
 async def _import_csv_stream(
     rows: list[tuple[str, datetime, int]],
     meter_ids: set[str],
@@ -502,117 +608,38 @@ async def _import_csv_stream(
 
 
 @app.post("/api/import")
-async def import_csv(
-    file: UploadFile = File(...),
-    stream: bool = False,
-    db: AsyncSession = Depends(get_db),
-):
-    """Import raw readings from CSV. Collection is paused while import runs. Supports: (1) Export format; (2) rtlamr 8-column."""
-    import csv
-    from fastapi import HTTPException
-    from sqlalchemy.exc import IntegrityError
-
-    settings = get_settings()
-    lock_path = settings.import_lock_path
-    lock_path.touch()
+async def import_csv(file: UploadFile = File(...)):
+    """Start a background import. Returns 202 with job_id; poll GET /api/import/status/{job_id} for result."""
     try:
         content = await file.read()
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError:
-            try:
-                text = content.decode("utf-8-sig")  # strip BOM if present
-            except Exception:
-                return {"error": "File must be UTF-8 encoded"}
-        reader = csv.reader(text.splitlines())
-        rows: list[tuple[str, datetime, int]] = []
-        meter_ids: set[str] = set()
-        for row in reader:
-            parsed = _parse_import_row(row)
-            if parsed is not None:
-                meter_id, ts, cum = parsed
-                rows.append((meter_id, ts, cum))
-                meter_ids.add(meter_id)
-
-        # No valid rows: avoid empty IN() which can cause DB errors
-        if not rows or not meter_ids:
-            return {
-                "inserted": 0,
-                "skipped": 0,
-                "duplicates_ignored": 0,
-                "meters_seen": 0,
-            }
-
-        if stream:
-            return StreamingResponse(
-                _import_csv_stream(rows, meter_ids, db),
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-            )
-
-        # Non-streaming: ensure meters then batch insert (same logic as stream)
-        existing = (await db.execute(select(Meter.meter_id).where(Meter.meter_id.in_(meter_ids)))).scalars().all()
-        existing_set = {r[0] for r in existing}
-        for mid in meter_ids:
-            if mid not in existing_set:
-                db.add(Meter(meter_id=mid, label=None, active=False))
-                try:
-                    await db.commit()
-                except IntegrityError:
-                    await db.rollback()
-                    existing_set.add(mid)
-
-        inserted = 0
-        skipped = 0
-        batch_size = 500
-        i = 0
-        while i < len(rows):
-            batch = rows[i : i + batch_size]
-            i += len(batch)
-            try:
-                for meter_id, ts, cum in batch:
-                    db.add(
-                        RawReading(
-                            meter_id=meter_id,
-                            timestamp=ts,
-                            cumulative_raw=cum,
-                            cumulative_kwh=cum / 100.0,
-                            source="import",
-                        )
-                    )
-                await db.commit()
-                inserted += len(batch)
-            except IntegrityError:
-                await db.rollback()
-                for meter_id, ts, cum in batch:
-                    try:
-                        db.add(
-                            RawReading(
-                                meter_id=meter_id,
-                                timestamp=ts,
-                                cumulative_raw=cum,
-                                cumulative_kwh=cum / 100.0,
-                                source="import",
-                            )
-                        )
-                        await db.commit()
-                        inserted += 1
-                    except IntegrityError:
-                        await db.rollback()
-                        skipped += 1
-        return {
-            "inserted": inserted,
-            "skipped": skipped,
-            "duplicates_ignored": skipped,
-            "meters_seen": len(meter_ids),
-        }
-    except HTTPException:
-        raise
     except Exception as e:
-        logging.exception("Import failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"Import failed: {e!s}")
-    finally:
-        lock_path.unlink(missing_ok=True)
+        logging.exception("Failed to read upload: %s", e)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {e!s}")
+    temp_path = Path(get_settings().database_path.parent) / f"import_{uuid.uuid4().hex}.csv"
+    try:
+        temp_path.write_bytes(content)
+    except Exception as e:
+        logging.exception("Failed to write temp file: %s", e)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e!s}")
+    job_id = str(uuid.uuid4())
+    _import_jobs[job_id] = {"status": "running"}
+    asyncio.create_task(_run_import_job(job_id, temp_path))
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job_id, "message": "Import started. Poll /api/import/status/{job_id} for result."},
+    )
+
+
+@app.get("/api/import/status/{job_id}")
+async def import_status(job_id: str):
+    """Return status of a background import job."""
+    from fastapi import HTTPException
+
+    if job_id not in _import_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return _import_jobs[job_id]
 
 
 @app.get("/api/config/filter-ids")

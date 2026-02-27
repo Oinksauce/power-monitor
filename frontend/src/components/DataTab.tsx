@@ -51,9 +51,9 @@ export const DataTab: React.FC<DataTabProps> = ({
     if (!importFile) return;
     setImporting(true);
     setImportResult(null);
-    setImportStatus("Importing…");
+    setImportStatus("Uploading…");
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120_000); // 2 min for large files
+    const timeoutId = setTimeout(() => controller.abort(), 30_000); // 30s to upload and get 202
     try {
       const form = new FormData();
       form.append("file", importFile);
@@ -62,14 +62,41 @@ export const DataTab: React.FC<DataTabProps> = ({
         body: form,
         signal: controller.signal,
       });
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json().catch(() => ({}))) as { job_id?: string; detail?: unknown; error?: string };
+      clearTimeout(timeoutId);
       if (!res.ok) {
-        const detail = Array.isArray(data.detail) ? data.detail.map((o: { msg?: string }) => o.msg).join(", ") : data.detail ?? data.error;
+        const detail = Array.isArray(data.detail) ? (data.detail as { msg?: string }[]).map((o) => o.msg).join(", ") : (data.detail ?? data.error) as string;
         setImportResult(detail || `Error ${res.status}`);
         return;
       }
-      setImportResult(formatImportResult(data));
-      setImportFile(null);
+      if (res.status === 202 && data.job_id) {
+        setImportStatus("Importing…");
+        const jobId = data.job_id;
+        const pollInterval = 1500;
+        const maxPolls = 200; // ~5 min
+        for (let i = 0; i < maxPolls; i++) {
+          await new Promise((r) => setTimeout(r, pollInterval));
+          const statusRes = await fetch(`/api/import/status/${jobId}`);
+          const statusData = (await statusRes.json().catch(() => ({}))) as {
+            status?: string;
+            result?: { inserted?: number; skipped?: number; duplicates_ignored?: number; meters_seen?: number };
+            error?: string;
+          };
+          if (statusData.status === "completed" && statusData.result) {
+            setImportResult(formatImportResult(statusData.result));
+            setImportFile(null);
+            return;
+          }
+          if (statusData.status === "failed") {
+            setImportResult(statusData.error ?? "Import failed");
+            return;
+          }
+        }
+        setImportResult("Import timed out. Check server logs.");
+      } else {
+        setImportResult(formatImportResult(data as Parameters<typeof formatImportResult>[0]));
+        setImportFile(null);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Import failed";
       if (msg === "Network Error" || msg === "Failed to fetch" || (e instanceof Error && e.name === "AbortError")) {
