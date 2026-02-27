@@ -507,11 +507,14 @@ async def import_csv(
     stream: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
-    """Import raw readings from CSV. Supports: (1) Export format: header 'meter_id,timestamp,cumulative_raw' then data rows; (2) rtlamr 8-column. Use ?stream=1 for SSE progress."""
+    """Import raw readings from CSV. Collection is paused while import runs. Supports: (1) Export format; (2) rtlamr 8-column."""
     import csv
     from fastapi import HTTPException
     from sqlalchemy.exc import IntegrityError
 
+    settings = get_settings()
+    lock_path = settings.import_lock_path
+    lock_path.touch()
     try:
         content = await file.read()
         try:
@@ -608,6 +611,8 @@ async def import_csv(
     except Exception as e:
         logging.exception("Import failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Import failed: {e!s}")
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 @app.get("/api/config/filter-ids")

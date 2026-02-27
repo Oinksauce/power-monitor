@@ -12,6 +12,11 @@ class Settings(BaseModel):
         os.getenv("POWER_MONITOR_DB_PATH", "power_monitor.db")
     ).expanduser()
     sdr_device_index: int = int(os.getenv("POWER_MONITOR_SDR_DEVICE_INDEX", "0"))
+
+    @property
+    def import_lock_path(self) -> Path:
+        """Path of the lock file used to pause collection during CSV import."""
+        return self.database_path.parent / "import.lock"
     rtltcp_host: str = os.getenv("POWER_MONITOR_RTLTCP_HOST", "127.0.0.1")
     rtltcp_port: int = int(os.getenv("POWER_MONITOR_RTLTCP_PORT", "1234"))
     rtlamr_path: str = os.getenv("POWER_MONITOR_RTLAMR_PATH", "rtlamr")

@@ -68,6 +68,9 @@ def parse_rtlamr_csv_line(line: str) -> Optional[ParsedReading]:
 
 
 async def persist_reading(session: AsyncSession, reading: ParsedReading) -> None:
+    if get_settings().import_lock_path.exists():
+        logger.debug("Import in progress, skipping write")
+        return
     meter = (
         await session.execute(select(Meter).where(Meter.meter_id == reading.meter_id))
     ).scalar_one_or_none()
