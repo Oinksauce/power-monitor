@@ -67,17 +67,27 @@ def _ensure_local(dt: datetime) -> datetime:
 MAX_DELTA_KWH = 100.0  # > 100 kWh in one interval is suspicious
 MAX_KW = 500.0  # > 500 kW sustained is impossible for residential
 
+# Minimum interval duration (hours). Intervals shorter than this are skipped to avoid
+# spikes from "delta over a few seconds" (e.g. two readings 10s apart → huge kW).
+MIN_INTERVAL_HOURS = 1.0 / 60.0  # 1 minute
+
 
 def compute_intervals(readings: Iterable[RawReading]) -> List[IntervalPoint]:
-    """Convert cumulative readings into interval energy/power points."""
+    """Convert cumulative readings into interval energy/power points.
+
+    For each pair of consecutive readings (prev, cur):
+    - delta_kwh = change in cumulative kWh (energy used in that span)
+    - kw = delta_kwh / hours (average power over the interval; no smoothing)
+    Intervals that are too short, negative, or exceed sanity limits are skipped.
+    """
     readings_list = list(readings)
     points: List[IntervalPoint] = []
     for prev, cur in zip(readings_list, readings_list[1:]):
         prev_ts = _ensure_local(prev.timestamp)
         cur_ts = _ensure_local(cur.timestamp)
         dt_h = (cur_ts - prev_ts).total_seconds() / 3600.0
-        if dt_h <= 0:
-            continue
+        if dt_h < MIN_INTERVAL_HOURS:
+            continue  # Skip very short intervals that cause spikes
         delta_kwh = cur.cumulative_kwh - prev.cumulative_kwh
         if delta_kwh < 0:
             continue
