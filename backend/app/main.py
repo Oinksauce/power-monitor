@@ -23,15 +23,22 @@ from .database import get_session, init_db
 # In-memory import job status (job_id -> { status, result?, error? })
 _import_jobs: dict[str, dict[str, Any]] = {}
 from .filter_config import get_filter_ids_path, read_filter_ids, write_filter_ids
-from .models import Meter, MeterSettings, RawReading
+from .models import Meter, MeterSettings, RawReading, Interval
 from .schemas import FilterIdsUpdate, MeterOut, MeterUpdate, UsageSeries, UsagePoint
-from .usage import compute_intervals, bucket_intervals, get_recent_power_for_meter
+from .usage import compute_intervals, bucket_intervals, get_recent_power_for_meter, IntervalPoint
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
+    from .usage import sweep_intervals_loop
+    sweep_task = asyncio.create_task(sweep_intervals_loop())
     yield
+    sweep_task.cancel()
+    try:
+        await sweep_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(title="Power Monitor", lifespan=lifespan)
@@ -173,10 +180,10 @@ async def get_usage(
     else:
         start = start.astimezone().replace(tzinfo=None) if start.tzinfo else start
 
-    q = select(RawReading).order_by(RawReading.meter_id, RawReading.timestamp)
+    q = select(Interval).order_by(Interval.meter_id, Interval.end_ts)
     if meter_ids:
-        q = q.where(RawReading.meter_id.in_(meter_ids))
-    q = q.where(RawReading.timestamp >= start, RawReading.timestamp <= end)
+        q = q.where(Interval.meter_id.in_(meter_ids))
+    q = q.where(Interval.end_ts >= start, Interval.end_ts <= end)
 
     try:
         rows = (await db.execute(q)).scalars().all()
@@ -184,14 +191,15 @@ async def get_usage(
         logging.exception("Usage query failed: %s", e)
         raise
 
-    by_meter: dict[str, List[RawReading]] = {}
+    by_meter: dict[str, List[IntervalPoint]] = {}
     for r in rows:
-        by_meter.setdefault(r.meter_id, []).append(r)
+        by_meter.setdefault(r.meter_id, []).append(
+            IntervalPoint(timestamp=r.end_ts, delta_kwh=r.delta_kwh, kw=r.avg_kw, start_ts=r.start_ts)
+        )
 
     series_list: List[UsageSeries] = []
-    for meter_id, readings in by_meter.items():
+    for meter_id, intervals in by_meter.items():
         try:
-            intervals = compute_intervals(readings)
             bucketed = bucket_intervals(intervals, resolution)
             points: List[UsagePoint] = [
                 UsagePoint(timestamp=ts, kwh=kwh, kw=kw) for ts, kwh, kw in bucketed
@@ -203,6 +211,52 @@ async def get_usage(
 
     return series_list
 
+
+@app.get("/api/analytics/summary")
+async def get_analytics_summary(
+    meters: Optional[str] = None,
+    range: str = "24h",
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return baseload and peak load analytics over a specified range."""
+    meter_ids = [m.strip() for m in (meters or "").split(",") if m.strip()] if meters else None
+    now_local = datetime.now().astimezone().replace(tzinfo=None)
+    
+    if range == "7d":
+        start = now_local - timedelta(days=7)
+    elif range == "30d":
+        start = now_local - timedelta(days=30)
+    else:
+        start = now_local - timedelta(days=1)
+        
+    q = select(Interval).where(Interval.end_ts >= start, Interval.end_ts <= now_local)
+    if meter_ids:
+        q = q.where(Interval.meter_id.in_(meter_ids))
+        
+    rows = (await db.execute(q)).scalars().all()
+    
+    by_meter = {}
+    for r in rows:
+        by_meter.setdefault(r.meter_id, []).append(r)
+        
+    results = {}
+    for mid, m_rows in by_meter.items():
+        m_rows.sort(key=lambda x: x.end_ts)
+        
+        peak_gw = max(m_rows, key=lambda x: x.avg_kw) if m_rows else None
+        peak_val = peak_gw.avg_kw if peak_gw else 0.0
+        
+        points = [IntervalPoint(timestamp=r.end_ts, delta_kwh=r.delta_kwh, kw=r.avg_kw, start_ts=r.start_ts) for r in m_rows]
+        from .usage import bucket_intervals
+        buckets_1h = bucket_intervals(points, "1h")
+        baseload = min([b[2] for b in buckets_1h if b[2] > 0], default=0.0)
+        
+        results[mid] = {
+            "peak_kw": peak_val,
+            "baseload_kw": baseload
+        }
+        
+    return results
 
 @app.get("/api/gauge/debug")
 async def gauge_debug(

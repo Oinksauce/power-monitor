@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Header, type RangePreset } from "../components/Header";
 import { GaugeRow } from "../components/GaugeRow";
+import { AnalyticsPanel } from "../components/AnalyticsPanel";
 import { UsageChart } from "../components/UsageChart";
 import { UsageByWeekdayChart } from "../components/UsageByWeekdayChart";
 import { UsageByHourChart } from "../components/UsageByHourChart";
@@ -214,6 +215,7 @@ export const App: React.FC = () => {
         {activeTab === "dashboard" && (
           <>
             <GaugeRow meters={activeMeters} />
+            <AnalyticsPanel activeMeters={activeMeters} range={range} />
             <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
             <UsageByWeekdayChart
               series={usage}

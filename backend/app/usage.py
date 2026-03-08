@@ -16,6 +16,7 @@ class IntervalPoint:
     timestamp: datetime
     delta_kwh: float
     kw: float
+    start_ts: datetime | None = None
 
 
 async def get_recent_power_for_meter(
@@ -89,6 +90,7 @@ def compute_intervals(readings: Iterable[RawReading]) -> List[IntervalPoint]:
                 timestamp=cur_ts,
                 delta_kwh=delta_kwh,
                 kw=kw,
+                start_ts=prev_ts
             )
         )
     return points
@@ -139,3 +141,80 @@ def bucket_intervals(
 
     return aggregated
 
+
+async def sweep_intervals(db: AsyncSession) -> int:
+    from .models import Meter, Interval
+    meters = (await db.execute(select(Meter.meter_id))).scalars().all()
+    
+    total_inserted = 0
+    for meter_id in meters:
+        last_interval_end = (
+            await db.execute(
+                select(Interval.end_ts)
+                .where(Interval.meter_id == meter_id)
+                .order_by(Interval.end_ts.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        
+        q = select(RawReading).where(RawReading.meter_id == meter_id).order_by(RawReading.timestamp)
+        if last_interval_end:
+            # Re-fetch from the reading that matches last_interval_end
+            q = q.where(RawReading.timestamp >= last_interval_end)
+            
+        readings = (await db.execute(q)).scalars().all()
+        if len(readings) < 2:
+            continue
+            
+        points = compute_intervals(readings)
+        inserts = []
+        for p in points:
+            if last_interval_end and _ensure_local(p.timestamp) <= _ensure_local(last_interval_end):
+                continue
+            inserts.append(
+                Interval(
+                    meter_id=meter_id,
+                    start_ts=p.start_ts,
+                    end_ts=p.timestamp,
+                    delta_kwh=p.delta_kwh,
+                    avg_kw=p.kw
+                )
+            )
+        if inserts:
+            db.add_all(inserts)
+            try:
+                await db.commit()
+                total_inserted += len(inserts)
+            except Exception:
+                await db.rollback()
+            
+    return total_inserted
+
+
+async def sweep_intervals_loop() -> None:
+    from .database import get_session_factory
+    import logging
+    import asyncio
+    logger = logging.getLogger("power_monitor.sweeper")
+    session_factory = get_session_factory()
+    
+    # Run a sweep on startup
+    try:
+        async with session_factory() as db:
+            n = await sweep_intervals(db)
+            if n > 0:
+                logger.info("Swept %d new intervals on startup", n)
+    except Exception as e:
+        logger.error("Startup sweep failed: %s", e)
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            async with session_factory() as db:
+                n = await sweep_intervals(db)
+                if n > 0:
+                    logger.debug("Swept %d new intervals", n)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("Periodic sweep failed: %s", e)

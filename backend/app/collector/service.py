@@ -67,7 +67,86 @@ def parse_rtlamr_csv_line(line: str) -> Optional[ParsedReading]:
     return ParsedReading(timestamp=timestamp, meter_id=meter_id, cumulative_raw=cumulative_raw)
 
 
+async def _batch_writer(queue: asyncio.Queue[ParsedReading], session_factory) -> None:
+    batch: list[ParsedReading] = []
+    
+    async def flush_batch():
+        if not batch:
+            return
+        if get_settings().import_lock_path.exists():
+            logger.debug("Import in progress, skipping write")
+            batch.clear()
+            return
+
+        async with session_factory() as session:
+            try:
+                meter_ids = {r.meter_id for r in batch}
+                existing = (await session.execute(select(Meter.meter_id).where(Meter.meter_id.in_(meter_ids)))).scalars().all()
+                existing_set = set(existing)
+                
+                for mid in meter_ids:
+                    if mid not in existing_set:
+                        session.add(Meter(meter_id=mid, label=None, active=False))
+                        try:
+                            await session.commit()
+                        except IntegrityError:
+                            await session.rollback()
+                            existing_set.add(mid)
+
+                for reading in batch:
+                    model = RawReading(
+                        meter_id=reading.meter_id,
+                        timestamp=reading.timestamp,
+                        cumulative_raw=reading.cumulative_raw,
+                        cumulative_kwh=reading.cumulative_raw / 100.0,
+                        source="rtlamr",
+                    )
+                    session.add(model)
+                
+                try:
+                    await session.commit()
+                except IntegrityError:
+                    await session.rollback()
+                    # Fallback to single inserts if batch fails due to duplicate
+                    for reading in batch:
+                        model = RawReading(
+                            meter_id=reading.meter_id,
+                            timestamp=reading.timestamp,
+                            cumulative_raw=reading.cumulative_raw,
+                            cumulative_kwh=reading.cumulative_raw / 100.0,
+                            source="rtlamr",
+                        )
+                        session.add(model)
+                        try:
+                            await session.commit()
+                        except IntegrityError:
+                            await session.rollback()
+            except Exception as e:
+                logger.error("Failed to flush batch: %s", e)
+            finally:
+                batch.clear()
+
+    while True:
+        try:
+            reading = await asyncio.wait_for(queue.get(), timeout=5.0)
+            batch.append(reading)
+            queue.task_done()
+            
+            while not queue.empty() and len(batch) < 200:
+                batch.append(queue.get_nowait())
+                queue.task_done()
+            
+            if len(batch) >= 200:
+                await flush_batch()
+        except asyncio.TimeoutError:
+            await flush_batch()
+        except asyncio.CancelledError:
+            await flush_batch()
+            raise
+
+
 async def persist_reading(session: AsyncSession, reading: ParsedReading) -> None:
+    # Deprecated for stream, used for replay
     if get_settings().import_lock_path.exists():
         logger.debug("Import in progress, skipping write")
         return
@@ -93,7 +172,7 @@ async def persist_reading(session: AsyncSession, reading: ParsedReading) -> None
         await session.rollback()
 
 
-async def _run_rtlamr_stream(session: AsyncSession) -> None:
+async def _run_rtlamr_stream(session_factory) -> None:
     settings = get_settings()
     rtl_tcp_path = settings.rtl_tcp_path
     rtlamr_path = settings.rtlamr_path
@@ -141,6 +220,9 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
             # Signals may not be available on some platforms
             pass
 
+    queue: asyncio.Queue[ParsedReading] = asyncio.Queue()
+    writer_task = asyncio.create_task(_batch_writer(queue, session_factory))
+
     try:
         while not stop_event.is_set():
             args = _build_args()
@@ -159,7 +241,7 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
                     reading = parse_rtlamr_csv_line(line)
                     if reading is None:
                         continue
-                    await persist_reading(session, reading)
+                    queue.put_nowait(reading)
             except asyncio.CancelledError:
                 raise
             finally:
@@ -176,6 +258,13 @@ async def _run_rtlamr_stream(session: AsyncSession) -> None:
             await asyncio.sleep(5)
     finally:
         logger.info("Shutting down collector processes")
+        writer_task.cancel()
+        # Wait for writer task to finish processing remaining stuff before exiting
+        try:
+            await writer_task
+        except asyncio.CancelledError:
+            pass
+
         if rtl_tcp_proc.returncode is None:
             rtl_tcp_proc.terminate()
         await rtl_tcp_proc.wait()
@@ -205,8 +294,7 @@ async def run_collector() -> None:
 
     get_engine()
     session_factory = get_session_factory()
-    async with session_factory() as session:
-        await _run_rtlamr_stream(session)
+    await _run_rtlamr_stream(session_factory)
 
 
 def main() -> None:
