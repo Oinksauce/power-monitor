@@ -8,6 +8,7 @@ import { UsageByHourChart } from "../components/UsageByHourChart";
 import { MeterList } from "../components/MeterList";
 import { DataTab } from "../components/DataTab";
 import { BillingTab } from "../components/BillingTab";
+import { AnalyticsTab } from "../components/AnalyticsTab";
 
 export interface Meter {
   meter_id: string;
@@ -82,7 +83,7 @@ export const App: React.FC = () => {
   const [customEnd, setCustomEnd] = useState(() => defaultCustomEnd());
   const [loading, setLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "discovery" | "data" | "billing">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "discovery" | "data" | "billing" | "analytics">("dashboard");
 
   async function fetchMeters() {
     const res = await fetch("/api/meters");
@@ -207,6 +208,13 @@ export const App: React.FC = () => {
         </button>
         <button
           type="button"
+          className={activeTab === "analytics" ? "tab-btn active" : "tab-btn"}
+          onClick={() => setActiveTab("analytics")}
+        >
+          Analytics
+        </button>
+        <button
+          type="button"
           className={activeTab === "data" ? "tab-btn active" : "tab-btn"}
           onClick={() => setActiveTab("data")}
         >
@@ -227,7 +235,6 @@ export const App: React.FC = () => {
           return (
             <>
               <GaugeRow meters={activeMeters} />
-              <AnalyticsPanel activeMeters={activeMeters} range={range} />
               <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
               {rangeDays >= 7 && (
                 <>
@@ -266,6 +273,9 @@ export const App: React.FC = () => {
         )}
         {activeTab === "billing" && (
           <BillingTab meters={meters} />
+        )}
+        {activeTab === "analytics" && (
+          <AnalyticsTab activeMeters={activeMeters} range={range} />
         )}
       </main>
     </div>

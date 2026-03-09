@@ -112,3 +112,19 @@ class PowerBill(Base):
 
     meter: Mapped[Meter] = relationship()
 
+
+class EventLog(BaseModel):
+    __tablename__ = "event_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    meter_id: Mapped[str] = mapped_column(String, ForeignKey("meters.meter_id"), index=True)
+    start_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    end_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    avg_kw: Mapped[float] = mapped_column(Float)
+    kwh: Mapped[float] = mapped_column(Float)
+    identified_appliance: Mapped[str] = mapped_column(String)
+    user_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="unverified")  # unverified, confirmed, corrected, ignored
+
+    meter: Mapped[Meter] = relationship()
+

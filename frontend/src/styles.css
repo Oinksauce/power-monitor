@@ -943,3 +943,149 @@ body {
   }
 }
 
+/* Phase 7: Analytics Tab & Feedback UI */
+
+.analytics-tab {
+  padding: 1rem 0;
+}
+
+.analytics-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 1100px) {
+  .analytics-layout {
+    grid-template-columns: 2fr 1fr;
+  }
+}
+
+.chart-section {
+  min-height: 480px;
+}
+
+.events-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.events-table th {
+  text-align: left;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.05em;
+}
+
+.events-table td {
+  padding: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.events-table tr.confirmed {
+  background: rgba(34, 197, 94, 0.02);
+}
+
+.events-table tr.ignored {
+  opacity: 0.5;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.date {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 0.25rem;
+}
+
+.time {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #f8fafc;
+}
+
+.appliance-name {
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+.kwh {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.avg-kw {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.btn-confirm {
+  background: #22c55e22;
+  color: #22c55e;
+  border: 1px solid #22c55e44;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-confirm:hover {
+  background: #22c55e;
+  color: #fff;
+}
+
+.feedback-select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.status-badge {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.status-badge.confirmed {
+  background: #22c55e22;
+  color: #4ade80;
+}
+
+.status-badge.corrected {
+  background: #3b82f622;
+  color: #60a5fa;
+}
+
+.status-badge.ignored {
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+}
+
+.no-padding {
+  padding: 0 !important;
+}
+
+.empty-row {
+  text-align: center;
+  color: #94a3b8;
+  padding: 2rem !important;
+}
+

@@ -27,10 +27,11 @@ from .database import get_session, init_db
 # In-memory import job status (job_id -> { status, result?, error? })
 _import_jobs: dict[str, dict[str, Any]] = {}
 from .filter_config import get_filter_ids_path, read_filter_ids, write_filter_ids
-from .models import Meter, MeterSettings, RawReading, Interval, BillingRate, PowerBill
+from .models import Meter, MeterSettings, RawReading, Interval, BillingRate, PowerBill, EventLog
 from .schemas import (
     FilterIdsUpdate, MeterOut, MeterUpdate, UsageSeries, UsagePoint,
-    BillingRateCreate, BillingRateOut, PowerBillCreate, PowerBillOut
+    BillingRateCreate, BillingRateOut, PowerBillCreate, PowerBillOut,
+    EventLogOut, EventFeedbackUpdate
 )
 from .usage import compute_intervals, bucket_intervals, get_recent_power_for_meter, IntervalPoint
 
@@ -827,4 +828,47 @@ async def delete_bill(bill_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(db_bill)
     await db.commit()
     return {"ok": True}
+
+
+# Phase 7: Event Log & Feedback Endpoints
+
+@app.get("/api/events", response_model=List[EventLogOut])
+async def get_events(
+    meter_id: Optional[str] = None,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve detected high-impact events."""
+    q = select(EventLog).order_by(EventLog.start_ts.desc())
+    if meter_id:
+        q = q.where(EventLog.meter_id == meter_id)
+    if start:
+        q = q.where(EventLog.start_ts >= start)
+    if end:
+        q = q.where(EventLog.end_ts <= end)
+    
+    result = await db.execute(q)
+    return result.scalars().all()
+
+
+@app.put("/api/events/{event_id}/feedback", response_model=EventLogOut)
+async def update_event_feedback(
+    event_id: int,
+    payload: EventFeedbackUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update user feedback for a detected event."""
+    from fastapi import HTTPException
+    event = await db.get(EventLog, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    if payload.user_label is not None:
+        event.user_label = payload.user_label
+    event.status = payload.status
+    
+    await db.commit()
+    await db.refresh(event)
+    return event
 

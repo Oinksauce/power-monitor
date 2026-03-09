@@ -228,12 +228,12 @@ def extract_high_consumption_events(
     """
     Finds sustained periods where power draw exceeds baseload + threshold.
     Identifies likely appliances based on docs/appliance_signatures.json.
-    Returns a list of event dictionaries: {appliance, kwh, duration_min, avg_kw}
+    Returns a list of event dictionaries: {appliance, kwh, duration_min, avg_kw, start_ts, end_ts}
     """
     import json
     from pathlib import Path
 
-    # Load signatures (relative to project root usually)
+    # Load signatures
     signatures = []
     try:
         sig_path = Path(__file__).resolve().parent.parent.parent / "docs" / "appliance_signatures.json"
@@ -251,7 +251,6 @@ def extract_high_consumption_events(
         best_match = "Unknown High Load"
         min_diff = float("inf")
         
-        # Simple matching: find closest typical_w within 25% tolerance
         for sig in signatures:
             typical_w = sig.get("typical_w", 0)
             diff = abs(event_w - typical_w)
@@ -267,6 +266,7 @@ def extract_high_consumption_events(
     current_event_kwh = 0.0
     current_event_duration = 0.0
     current_event_points = []
+    current_start_ts = None
     in_event = False
     
     for p in points:
@@ -276,8 +276,8 @@ def extract_high_consumption_events(
                 current_event_kwh = 0.0
                 current_event_duration = 0.0
                 current_event_points = []
+                current_start_ts = p.start_ts or p.timestamp
             
-            # accumulate
             current_event_kwh += p.delta_kwh
             current_event_points.append(p.kw)
             duration_hours = p.delta_kwh / p.kw if p.kw > 0 else 0
@@ -286,17 +286,17 @@ def extract_high_consumption_events(
             if in_event:
                 if current_event_duration >= min_duration_minutes:
                     avg_kw = sum(current_event_points) / len(current_event_points) if current_event_points else 0
-                    # Identify based on the added load (above baseload)
                     appliance_name = identify_appliance(avg_kw - baseload_kw)
                     events.append({
                         "appliance": appliance_name,
                         "kwh": current_event_kwh,
                         "duration_min": current_event_duration,
-                        "avg_kw": avg_kw
+                        "avg_kw": avg_kw,
+                        "start_ts": current_start_ts,
+                        "end_ts": p.timestamp
                     })
                 in_event = False
                 
-    # Check if last event finished at the end of the array
     if in_event and current_event_duration >= min_duration_minutes:
         avg_kw = sum(current_event_points) / len(current_event_points) if current_event_points else 0
         appliance_name = identify_appliance(avg_kw - baseload_kw)
@@ -304,7 +304,124 @@ def extract_high_consumption_events(
             "appliance": appliance_name,
             "kwh": current_event_kwh,
             "duration_min": current_event_duration,
-            "avg_kw": avg_kw
+            "avg_kw": avg_kw,
+            "start_ts": current_start_ts,
+            "end_ts": points[-1].timestamp
         })
         
     return events
+
+
+async def sweep_events(db: AsyncSession) -> int:
+    """Identify high-consumption events from Interval table and log to EventLog."""
+    from .models import Interval, EventLog, Meter
+    
+    # 1. For each meter, find the latest end_ts in EventLog
+    meters = (await db.execute(select(Meter.meter_id))).scalars().all()
+    total_new = 0
+    
+    for meter_id in meters:
+        last_event_end = (
+            await db.execute(
+                select(EventLog.end_ts)
+                .where(EventLog.meter_id == meter_id)
+                .order_by(EventLog.end_ts.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        
+        # 2. Query last 3 days of intervals to ensure we have context for baseload
+        # but only process new ones since last_event_end
+        now = datetime.now().astimezone().replace(tzinfo=None)
+        q = select(Interval).where(Interval.meter_id == meter_id).order_by(Interval.start_ts)
+        # Fetch a reasonable window to calculate baseload accurately
+        q_window = q.where(Interval.start_ts >= now - timedelta(days=3))
+        
+        rows = (await db.execute(q_window)).scalars().all()
+        if not rows:
+            continue
+            
+        points = [
+            IntervalPoint(timestamp=r.end_ts, delta_kwh=r.delta_kwh, kw=r.avg_kw, start_ts=r.start_ts)
+            for r in rows
+        ]
+        
+        # Calculate local baseload from this window
+        # Group into 1h buckets for baseload calculation
+        buckets: Dict[datetime, List[float]] = defaultdict(list)
+        for p in points:
+            bucket_ts = p.timestamp.replace(minute=0, second=0, microsecond=0)
+            buckets[bucket_ts].append(p.kw)
+        
+        hourly_avg = []
+        for b_ts, kws in buckets.items():
+            if kws:
+                hourly_avg.append(sum(kws) / len(kws))
+        
+        baseload = min([v for v in hourly_avg if v > 0], default=0.2)
+        
+        # Extract events
+        all_detected = extract_high_consumption_events(points, baseload_kw=baseload, threshold_w=500.0, min_duration_minutes=5.0)
+        
+        # Filter only those that start AFTER last_event_end
+        new_events = []
+        for e in all_detected:
+            # e['start_ts'] is aware? no, Interval uses local naive.
+            if last_event_end and _ensure_local(e["start_ts"]) <= _ensure_local(last_event_end):
+                continue
+            
+            new_events.append(
+                EventLog(
+                    meter_id=meter_id,
+                    start_ts=e["start_ts"],
+                    end_ts=e["end_ts"],
+                    avg_kw=e["avg_kw"],
+                    kwh=e["kwh"],
+                    identified_appliance=e["appliance"],
+                    status="unverified"
+                )
+            )
+        
+        if new_events:
+            db.add_all(new_events)
+            await db.commit()
+            total_new += len(new_events)
+            
+    return total_new
+
+
+async def sweep_intervals_loop() -> None:
+    from .database import get_session_factory
+    import logging
+    import asyncio
+    logger = logging.getLogger("power_monitor.sweeper")
+    session_factory = get_session_factory()
+    
+    # Run a sweep on startup
+    try:
+        async with session_factory() as db:
+            n_int = await sweep_intervals(db)
+            if n_int > 0:
+                logger.info("Swept %d new intervals on startup", n_int)
+            
+            n_ev = await sweep_events(db)
+            if n_ev > 0:
+                logger.info("Identified %d new high-impact events on startup", n_ev)
+    except Exception as e:
+        logger.error("Startup sweep failed: %s", e)
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            async with session_factory() as db:
+                n_int = await sweep_intervals(db)
+                if n_int > 0:
+                    logger.debug("Swept %d new intervals", n_int)
+                
+                n_ev = await sweep_events(db)
+                if n_ev > 0:
+                    logger.info("Identified %d new high-impact events", n_ev)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("Periodic sweep failed: %s", e)

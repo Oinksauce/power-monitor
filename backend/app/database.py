@@ -85,4 +85,7 @@ async def init_db() -> None:
             await conn.execute(
                 sa.text("ALTER TABLE meters ADD COLUMN collecting BOOLEAN DEFAULT 0 NOT NULL")
             )
+        
+        # Check if event_log exists (create_all handles it, but just in case of future migrations)
+        # (This is already covered by models.Base.metadata.create_all above)
 

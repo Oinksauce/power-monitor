@@ -105,3 +105,24 @@ class PowerBillOut(PowerBillBase):
     class Config:
         from_attributes = True
 
+class EventLogBase(BaseModel):
+    meter_id: str
+    start_ts: datetime
+    end_ts: datetime
+    avg_kw: float
+    kwh: float
+    identified_appliance: str
+    user_label: Optional[str] = None
+    status: str = "unverified"
+
+
+class EventLogOut(EventLogBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class EventFeedbackUpdate(BaseModel):
+    user_label: Optional[str] = None
+    status: str  # confirmed, corrected, ignored
