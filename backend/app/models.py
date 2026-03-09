@@ -113,7 +113,7 @@ class PowerBill(Base):
     meter: Mapped[Meter] = relationship()
 
 
-class EventLog(BaseModel):
+class EventLog(Base):
     __tablename__ = "event_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
