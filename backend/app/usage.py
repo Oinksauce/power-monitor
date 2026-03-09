@@ -224,18 +224,49 @@ def extract_high_consumption_events(
     baseload_kw: float, 
     threshold_w: float = 500.0, 
     min_duration_minutes: float = 10.0
-) -> Tuple[int, float]:
+) -> List[dict]:
     """
     Finds sustained periods where power draw exceeds baseload + threshold.
-    Returns (number_of_events, total_kwh_impact_of_events)
+    Identifies likely appliances based on docs/appliance_signatures.json.
+    Returns a list of event dictionaries: {appliance, kwh, duration_min, avg_kw}
     """
+    import json
+    from pathlib import Path
+
+    # Load signatures (relative to project root usually)
+    signatures = []
+    try:
+        sig_path = Path(__file__).resolve().parent.parent.parent / "docs" / "appliance_signatures.json"
+        if sig_path.exists():
+            data = json.loads(sig_path.read_text())
+            signatures = data.get("appliance_signatures", [])
+    except Exception:
+        pass
+
+    def identify_appliance(event_avg_kw: float) -> str:
+        if not signatures:
+            return "Unknown High Load"
+        
+        event_w = event_avg_kw * 1000.0
+        best_match = "Unknown High Load"
+        min_diff = float("inf")
+        
+        # Simple matching: find closest typical_w within 25% tolerance
+        for sig in signatures:
+            typical_w = sig.get("typical_w", 0)
+            diff = abs(event_w - typical_w)
+            if diff < min_diff and diff < (typical_w * 0.25):
+                min_diff = diff
+                best_match = sig.get("name", "Unknown")
+        
+        return best_match
+
     threshold_kw = baseload_kw + (threshold_w / 1000.0)
     
-    events_count = 0
-    total_impact_kwh = 0.0
-    
+    events = []
     current_event_kwh = 0.0
     current_event_duration = 0.0
+    current_event_points = []
     in_event = False
     
     for p in points:
@@ -244,21 +275,36 @@ def extract_high_consumption_events(
                 in_event = True
                 current_event_kwh = 0.0
                 current_event_duration = 0.0
+                current_event_points = []
             
             # accumulate
             current_event_kwh += p.delta_kwh
+            current_event_points.append(p.kw)
             duration_hours = p.delta_kwh / p.kw if p.kw > 0 else 0
             current_event_duration += duration_hours * 60.0
         else:
             if in_event:
                 if current_event_duration >= min_duration_minutes:
-                    events_count += 1
-                    total_impact_kwh += current_event_kwh
+                    avg_kw = sum(current_event_points) / len(current_event_points) if current_event_points else 0
+                    # Identify based on the added load (above baseload)
+                    appliance_name = identify_appliance(avg_kw - baseload_kw)
+                    events.append({
+                        "appliance": appliance_name,
+                        "kwh": current_event_kwh,
+                        "duration_min": current_event_duration,
+                        "avg_kw": avg_kw
+                    })
                 in_event = False
                 
     # Check if last event finished at the end of the array
     if in_event and current_event_duration >= min_duration_minutes:
-        events_count += 1
-        total_impact_kwh += current_event_kwh
+        avg_kw = sum(current_event_points) / len(current_event_points) if current_event_points else 0
+        appliance_name = identify_appliance(avg_kw - baseload_kw)
+        events.append({
+            "appliance": appliance_name,
+            "kwh": current_event_kwh,
+            "duration_min": current_event_duration,
+            "avg_kw": avg_kw
+        })
         
-    return events_count, total_impact_kwh
+    return events
