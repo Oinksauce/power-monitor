@@ -30,6 +30,9 @@ class Meter(Base):
     active: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("0")
     )
+    collecting: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0")
+    )
 
     readings: Mapped[list["RawReading"]] = relationship(back_populates="meter")
 
@@ -80,4 +83,32 @@ class Interval(Base):
     __table_args__ = (
         Index("ix_intervals_meter_start", "meter_id", "start_ts"),
     )
+
+
+class BillingRate(Base):
+    __tablename__ = "billing_rates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    meter_id: Mapped[str] = mapped_column(String, ForeignKey("meters.meter_id"), index=True)
+    rate_name: Mapped[str] = mapped_column(String)
+    rate_per_kwh: Mapped[float] = mapped_column(Float)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    meter: Mapped[Meter] = relationship()
+
+
+class PowerBill(Base):
+    __tablename__ = "power_bills"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    meter_id: Mapped[str] = mapped_column(String, ForeignKey("meters.meter_id"), index=True)
+    start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    total_kwh: Mapped[float] = mapped_column(Float)
+    total_cost: Mapped[float] = mapped_column(Float)
+    document_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    meter: Mapped[Meter] = relationship()
 

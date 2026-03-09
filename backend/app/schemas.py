@@ -19,6 +19,7 @@ class MeterOut(BaseModel):
     meter_id: str
     label: Optional[str]
     active: bool
+    collecting: bool = False
     last_seen: Optional[datetime] = None
     current_estimated_kw: Optional[float] = None
     settings: Optional[MeterSettingsOut] = None
@@ -34,6 +35,7 @@ class FilterIdsUpdate(BaseModel):
 class MeterUpdate(BaseModel):
     label: Optional[str] = None
     active: Optional[bool] = None
+    collecting: Optional[bool] = None
     green_max_kw: Optional[float] = None
     yellow_max_kw: Optional[float] = None
     red_max_kw: Optional[float] = None
@@ -62,4 +64,44 @@ class LiveMetric(BaseModel):
     current_kw: float
     trailing_window_s: int
     updated_at: datetime
+
+
+class BillingRateBase(BaseModel):
+    meter_id: str
+    rate_name: str
+    rate_per_kwh: float
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+
+class BillingRateCreate(BillingRateBase):
+    pass
+
+
+class BillingRateOut(BillingRateBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class PowerBillBase(BaseModel):
+    meter_id: str
+    start_date: datetime
+    end_date: datetime
+    total_kwh: float
+    total_cost: float
+    document_path: Optional[str] = None
+
+
+class PowerBillCreate(PowerBillBase):
+    pass
+
+
+class PowerBillOut(PowerBillBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 

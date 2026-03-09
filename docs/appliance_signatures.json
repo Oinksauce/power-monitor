@@ -1,0 +1,38 @@
+{
+  "version": "1.2.0",
+  "description": "Expanded appliance power usage signatures database",
+  "project": "power-monitor",
+  "appliance_signatures": [
+    { "id": "ev_charger_l2", "name": "EV Charger (Level 2)", "category": "transportation", "typical_w": 7200, "difficulty": "easy" },
+    { "id": "microwave", "name": "Microwave", "category": "kitchen", "typical_w": 1200, "difficulty": "easy" },
+    { "id": "dishwasher", "name": "Dishwasher", "category": "kitchen", "typical_w": 1500, "difficulty": "medium" },
+    { "id": "refrigerator", "name": "Refrigerator", "category": "kitchen", "typical_w": 150, "difficulty": "easy" },
+    { "id": "mini_split", "name": "Mini-Split Heat Pump", "category": "hvac", "typical_w": 1200, "difficulty": "hard" },
+    { "id": "central_ac", "name": "Central AC", "category": "hvac", "typical_w": 3000, "difficulty": "easy" },
+    { "id": "electric_oven", "name": "Electric Oven", "category": "kitchen", "typical_w": 3000, "difficulty": "medium" },
+    { "id": "electric_range", "name": "Electric Range", "category": "kitchen", "typical_w": 2500, "difficulty": "medium" },
+    { "id": "toaster", "name": "Toaster", "category": "kitchen", "typical_w": 1100, "difficulty": "easy" },
+    { "id": "toaster_oven", "name": "Toaster Oven", "category": "kitchen", "typical_w": 1500, "difficulty": "medium" },
+    { "id": "space_heater", "name": "Space Heater", "category": "hvac", "typical_w": 1500, "difficulty": "medium" },
+    { "id": "tv_led", "name": "Television", "category": "entertainment", "typical_w": 80, "difficulty": "hard" },
+    { "id": "pc_gaming", "name": "Gaming Computer", "category": "entertainment", "typical_w": 450, "difficulty": "medium" },
+    { "id": "game_console", "name": "Game Console", "category": "entertainment", "typical_w": 180, "difficulty": "medium" },
+    { "id": "hair_dryer", "name": "Hair Dryer", "category": "personal_care", "typical_w": 1800, "difficulty": "easy" },
+    { "id": "curling_iron", "name": "Curling/Flat Iron", "category": "personal_care", "typical_w": 60, "difficulty": "hard" },
+    { "id": "washing_machine", "name": "Washing Machine", "category": "laundry", "typical_w": 500, "difficulty": "medium" },
+    { "id": "clothes_dryer", "name": "Clothes Dryer", "category": "laundry", "typical_w": 4000, "difficulty": "easy" },
+    { "id": "kettle", "name": "Electric Kettle", "category": "kitchen", "typical_w": 1500, "difficulty": "easy" },
+    { "id": "coffee_maker", "name": "Coffee Maker", "category": "kitchen", "typical_w": 900, "difficulty": "medium" },
+    { "id": "vacuum_cleaner", "name": "Vacuum Cleaner", "category": "utility", "typical_w": 1000, "difficulty": "medium" },
+    { "id": "fan_ceiling", "name": "Ceiling Fan", "category": "hvac", "typical_w": 60, "difficulty": "hard" },
+    { "id": "led_bulb", "name": "LED Bulb", "category": "lighting", "typical_w": 9, "difficulty": "hard" }
+  ],
+  "detection_thresholds": {
+    "min_event_step_w": 50,
+    "significant_event_step_w": 500,
+    "major_event_step_w": 3000,
+    "step_match_tolerance_pct": 15,
+    "min_event_duration_sec": 30,
+    "sampling_interval_sec": 15
+  }
+}

@@ -76,3 +76,13 @@ async def init_db() -> None:
     async with get_engine().begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
 
+        # Lightweight migration: add 'collecting' column if missing
+        import sqlalchemy as sa
+
+        result = await conn.execute(sa.text("PRAGMA table_info(meters)"))
+        columns = {row[1] for row in result.fetchall()}
+        if "collecting" not in columns:
+            await conn.execute(
+                sa.text("ALTER TABLE meters ADD COLUMN collecting BOOLEAN DEFAULT 0 NOT NULL")
+            )
+

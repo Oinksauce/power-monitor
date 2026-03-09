@@ -2,6 +2,15 @@
 
 This project collects electricity usage data from household meters via SDR (`rtl_tcp` + `rtlamr`), stores it in SQLite, and exposes it via a FastAPI backend and a modern React dashboard.
 
+### SDR Hardware & Documentation
+
+This project relies on two open-source SDR tools. Refer to their documentation for hardware setup, SDR dongle configuration, and output format details:
+
+| Tool | Purpose | Documentation |
+|------|---------|---------------|
+| **rtl_tcp** | SDR server for RTL-SDR dongles | [Osmocom rtl-sdr](https://osmocom.org/projects/rtl-sdr) · [GitHub](https://github.com/osmocom/rtl-sdr) |
+| **rtlamr** | Receives and decodes smart meter transmissions | [GitHub](https://github.com/bemasher/rtlamr) · [Output format](https://github.com/bemasher/rtlamr#usage) |
+
 ### High-Level Components
 
 - **Collector service** (`backend/app/collector/service.py`): runs `rtl_tcp` and `rtlamr`, parses CSV messages, and writes cumulative readings into SQLite.

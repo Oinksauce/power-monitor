@@ -4,11 +4,15 @@ import asyncio
 import csv
 import json
 import logging
+import platform
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, List, Optional
+
+_PROCESS_START_TIME = time.time()
 
 from fastapi import Depends, FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,8 +27,11 @@ from .database import get_session, init_db
 # In-memory import job status (job_id -> { status, result?, error? })
 _import_jobs: dict[str, dict[str, Any]] = {}
 from .filter_config import get_filter_ids_path, read_filter_ids, write_filter_ids
-from .models import Meter, MeterSettings, RawReading, Interval
-from .schemas import FilterIdsUpdate, MeterOut, MeterUpdate, UsageSeries, UsagePoint
+from .models import Meter, MeterSettings, RawReading, Interval, BillingRate, PowerBill
+from .schemas import (
+    FilterIdsUpdate, MeterOut, MeterUpdate, UsageSeries, UsagePoint,
+    BillingRateCreate, BillingRateOut, PowerBillCreate, PowerBillOut
+)
 from .usage import compute_intervals, bucket_intervals, get_recent_power_for_meter, IntervalPoint
 
 
@@ -107,6 +114,7 @@ async def list_meters(db: AsyncSession = Depends(get_db)) -> List[MeterOut]:
                 meter_id=meter.meter_id,
                 label=meter.label,
                 active=meter.active,
+                collecting=meter.collecting,
                 last_seen=last_ts,
                 current_estimated_kw=current_kw,
                 settings=settings,
@@ -130,6 +138,8 @@ async def update_meter(
         meter.label = payload.label.strip() or None
     if payload.active is not None:
         meter.active = payload.active
+    if payload.collecting is not None:
+        meter.collecting = payload.collecting
 
     settings = (
         await db.execute(
@@ -154,6 +164,7 @@ async def update_meter(
         meter_id=meter.meter_id,
         label=meter.label,
         active=meter.active,
+        collecting=meter.collecting,
         last_seen=None,
         current_estimated_kw=None,
         settings=settings,
@@ -732,4 +743,87 @@ async def status(db: AsyncSession = Depends(get_db)) -> dict:
         "last_reading": last_reading_ts.isoformat() if last_reading_ts else None,
         "meter_count": meter_count,
     }
+
+
+@app.get("/api/system-info")
+async def system_info() -> dict:
+    """Return host system information and application uptime."""
+    uptime_seconds = time.time() - _PROCESS_START_TIME
+    days = int(uptime_seconds // 86400)
+    hours = int((uptime_seconds % 86400) // 3600)
+    minutes = int((uptime_seconds % 3600) // 60)
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m")
+    uptime_human = " ".join(parts)
+    return {
+        "hostname": platform.node(),
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "uptime_seconds": int(uptime_seconds),
+        "uptime_human": uptime_human,
+    }
+
+
+# Phase 4: Power Bill Tracking Endpoints
+
+@app.get("/api/rates", response_model=List[BillingRateOut])
+async def get_rates(db: AsyncSession = Depends(get_db)):
+    """Get all billing rates."""
+    result = await db.execute(select(BillingRate).order_by(BillingRate.meter_id, BillingRate.start_date))
+    return result.scalars().all()
+
+
+@app.post("/api/rates", response_model=BillingRateOut)
+async def create_rate(rate: BillingRateCreate, db: AsyncSession = Depends(get_db)):
+    """Create a new billing rate."""
+    db_rate = BillingRate(**rate.dict())
+    db.add(db_rate)
+    await db.commit()
+    await db.refresh(db_rate)
+    return db_rate
+
+
+@app.delete("/api/rates/{rate_id}")
+async def delete_rate(rate_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete a billing rate."""
+    from fastapi import HTTPException
+    db_rate = await db.get(BillingRate, rate_id)
+    if not db_rate:
+        raise HTTPException(status_code=404, detail="Rate not found")
+    await db.delete(db_rate)
+    await db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/bills", response_model=List[PowerBillOut])
+async def get_bills(db: AsyncSession = Depends(get_db)):
+    """Get all power bills."""
+    result = await db.execute(select(PowerBill).order_by(PowerBill.start_date.desc()))
+    return result.scalars().all()
+
+
+@app.post("/api/bills", response_model=PowerBillOut)
+async def create_bill(bill: PowerBillCreate, db: AsyncSession = Depends(get_db)):
+    """Create a new power bill."""
+    db_bill = PowerBill(**bill.dict())
+    db.add(db_bill)
+    await db.commit()
+    await db.refresh(db_bill)
+    return db_bill
+
+
+@app.delete("/api/bills/{bill_id}")
+async def delete_bill(bill_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete a power bill."""
+    from fastapi import HTTPException
+    db_bill = await db.get(PowerBill, bill_id)
+    if not db_bill:
+        raise HTTPException(status_code=404, detail="Bill not found")
+    await db.delete(db_bill)
+    await db.commit()
+    return {"ok": True}
 

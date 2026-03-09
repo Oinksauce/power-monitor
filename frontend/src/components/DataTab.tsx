@@ -138,7 +138,10 @@ export const DataTab: React.FC<DataTabProps> = ({
         <p>
           Upload a CSV of raw readings. Supported: <strong>Export backup format</strong> (same as
           Export CSV — header <code>meter_id,timestamp,cumulative_raw</code> then data rows) or{" "}
-          <strong>rtlamr format</strong> (8 columns: timestamp, …, meter_id, …, cumulative_raw).
+          <a href="https://github.com/bemasher/rtlamr#usage" target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa" }}>
+            <strong>rtlamr format</strong>
+          </a>{" "}
+          (8 columns: timestamp, …, meter_id, …, cumulative_raw).
         </p>
         <input
           type="file"

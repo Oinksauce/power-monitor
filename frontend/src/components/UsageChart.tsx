@@ -65,7 +65,7 @@ export const UsageChart: React.FC<Props> = ({ series, loading, error, meters = [
       <div className="card-header">
         <h2>Consumption Over Time</h2>
         <div className="chart-header-controls">
-          {loading && <span className="pill">Loading…</span>}
+          {loading && <span className="spinner"></span>}
           <label className="chart-y-max-control">
             <span className="chart-y-max-label">Y max (kW)</span>
             <input

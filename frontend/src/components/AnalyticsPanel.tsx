@@ -15,6 +15,23 @@ interface Props {
   range: RangePreset;
 }
 
+const COST_PER_KWH = 0.15;
+
+const TooltipIcon: React.FC<{ text: string }> = ({ text }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <span
+      className="info-icon-wrapper"
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onClick={() => setShow((s) => !s)}
+    >
+      <span className="info-icon-btn">?</span>
+      {show && <div className="info-tooltip">{text}</div>}
+    </span>
+  );
+};
+
 export const AnalyticsPanel: React.FC<Props> = ({ activeMeters, range }) => {
   const [summaries, setSummaries] = useState<Record<string, AnalyticsSummary>>({});
   const [loading, setLoading] = useState(false);
@@ -46,7 +63,9 @@ export const AnalyticsPanel: React.FC<Props> = ({ activeMeters, range }) => {
 
   return (
     <div className="card analytics-panel">
-      <h2>Power Analytics {loading && <span className="spinner"></span>}</h2>
+      <div className="card-header">
+        <h2>Power Analytics {loading && <span className="spinner"></span>}</h2>
+      </div>
       {error && <p className="error">{error}</p>}
       
       <div className="analytics-grid">
@@ -59,7 +78,7 @@ export const AnalyticsPanel: React.FC<Props> = ({ activeMeters, range }) => {
                 <>
                   <div className="metric">
                     <span className="metric-label">Estimated Base Load
-                      <span title="The lowest rolling 1-hour average, indicating always-on phantom power" className="info-icon">ℹ️</span>
+                      <TooltipIcon text="The lowest sustained 1-hour average power draw, representing always-on devices (fridge compressor cycle, standby electronics, WiFi router). The cost shown is the projected monthly phantom load cost at $0.15/kWh." />
                     </span>
                     <span className="metric-value baseload">
                       {summary.baseload_kw.toFixed(2)} kW
@@ -68,16 +87,20 @@ export const AnalyticsPanel: React.FC<Props> = ({ activeMeters, range }) => {
                   </div>
                   <div className="metric">
                     <span className="metric-label">High-Impact Events
-                      <span title="Number of times sustained power draw exceeded the baseline by 500W+ for >5 mins" className="info-icon">ℹ️</span>
+                      <TooltipIcon text="Sustained periods where power draw exceeded the baseline by 500W+ for more than 5 minutes (e.g., HVAC cycling, dryer, oven, EV charger). Count shows distinct events; energy and cost show the total impact." />
                     </span>
                     <span className="metric-value events">
-                      {summary.high_impact_events}
-                      <div className="metric-subtext">{summary.events_kwh_impact.toFixed(1)} kWh impact</div>
+                      {summary.high_impact_events} event{summary.high_impact_events !== 1 ? "s" : ""}
+                      <div className="metric-subtext">
+                        {summary.events_kwh_impact.toFixed(1)} kWh · ≈ ${(summary.events_kwh_impact * COST_PER_KWH).toFixed(2)}
+                      </div>
                     </span>
                   </div>
                 </>
               ) : (
-                <p>Loading summary...</p>
+                <div className="analytics-loading">
+                  <span className="spinner"></span>
+                </div>
               )}
             </div>
           );

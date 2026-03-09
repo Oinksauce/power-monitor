@@ -7,11 +7,13 @@ import { UsageByWeekdayChart } from "../components/UsageByWeekdayChart";
 import { UsageByHourChart } from "../components/UsageByHourChart";
 import { MeterList } from "../components/MeterList";
 import { DataTab } from "../components/DataTab";
+import { BillingTab } from "../components/BillingTab";
 
 export interface Meter {
   meter_id: string;
   label: string | null;
   active: boolean;
+  collecting: boolean;
   last_seen: string | null;
   current_estimated_kw: number | null;
   settings?: {
@@ -80,7 +82,7 @@ export const App: React.FC = () => {
   const [customEnd, setCustomEnd] = useState(() => defaultCustomEnd());
   const [loading, setLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "discovery" | "data">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "discovery" | "data" | "billing">("dashboard");
 
   async function fetchMeters() {
     const res = await fetch("/api/meters");
@@ -210,33 +212,48 @@ export const App: React.FC = () => {
         >
           Data
         </button>
+        <button
+          type="button"
+          className={activeTab === "billing" ? "tab-btn active" : "tab-btn"}
+          onClick={() => setActiveTab("billing")}
+        >
+          Billing
+        </button>
       </nav>
       <main className="app-main">
-        {activeTab === "dashboard" && (
-          <>
-            <GaugeRow meters={activeMeters} />
-            <AnalyticsPanel activeMeters={activeMeters} range={range} />
-            <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
-            <UsageByWeekdayChart
-              series={usage}
-              loading={loading}
-              error={usageError}
-              meters={meters}
-              activeMeterCount={activeMeters.length}
-              rangeStart={rangeBounds.start}
-              rangeEnd={rangeBounds.end}
-            />
-            <UsageByHourChart
-              series={usage}
-              loading={loading}
-              error={usageError}
-              meters={meters}
-              activeMeterCount={activeMeters.length}
-              rangeStart={rangeBounds.start}
-              rangeEnd={rangeBounds.end}
-            />
-          </>
-        )}
+        {activeTab === "dashboard" && (() => {
+          const { start, end } = getRangeBounds(range, customStart, customEnd);
+          const rangeDays = (end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000);
+          return (
+            <>
+              <GaugeRow meters={activeMeters} />
+              <AnalyticsPanel activeMeters={activeMeters} range={range} />
+              <UsageChart series={usage} loading={loading} error={usageError} meters={meters} />
+              {rangeDays >= 7 && (
+                <>
+                  <UsageByWeekdayChart
+                    series={usage}
+                    loading={loading}
+                    error={usageError}
+                    meters={meters}
+                    activeMeterCount={activeMeters.length}
+                    rangeStart={rangeBounds.start}
+                    rangeEnd={rangeBounds.end}
+                  />
+                  <UsageByHourChart
+                    series={usage}
+                    loading={loading}
+                    error={usageError}
+                    meters={meters}
+                    activeMeterCount={activeMeters.length}
+                    rangeStart={rangeBounds.start}
+                    rangeEnd={rangeBounds.end}
+                  />
+                </>
+              )}
+            </>
+          );
+        })()}
         {activeTab === "discovery" && (
           <MeterList meters={meters} onMeterUpdate={handleMeterUpdate} />
         )}
@@ -246,6 +263,9 @@ export const App: React.FC = () => {
             rangeStart={rangeBounds.start}
             rangeEnd={rangeBounds.end}
           />
+        )}
+        {activeTab === "billing" && (
+          <BillingTab meters={meters} />
         )}
       </main>
     </div>

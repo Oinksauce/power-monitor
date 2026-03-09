@@ -18,6 +18,12 @@ function parseDateString(s: string): Date {
   return isNaN(d.getTime()) ? new Date() : d;
 }
 
+interface SystemInfo {
+  hostname: string;
+  platform: string;
+  uptime_human: string;
+}
+
 interface Props {
   range: RangePreset;
   onRangeChange: (range: RangePreset) => void;
@@ -36,12 +42,27 @@ export const Header: React.FC<Props> = ({
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [localStart, setLocalStart] = useState(toDateString(customStart));
   const [localEnd, setLocalEnd] = useState(toDateString(customEnd));
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLocalStart(toDateString(customStart));
     setLocalEnd(toDateString(customEnd));
   }, [customStart, customEnd]);
+
+  useEffect(() => {
+    async function fetchSystemInfo() {
+      try {
+        const res = await fetch("/api/system-info");
+        if (res.ok) {
+          setSystemInfo(await res.json());
+        }
+      } catch { /* ignore */ }
+    }
+    fetchSystemInfo();
+    const interval = setInterval(fetchSystemInfo, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!showCustomPicker) return;
@@ -73,8 +94,20 @@ export const Header: React.FC<Props> = ({
       <div className="header-left">
         <h1>Power Monitor</h1>
         <p className="subtitle">Near real-time household power usage</p>
+        <p className="credits">
+          Built on{" "}
+          <a href="https://github.com/osmocom/rtl-sdr" target="_blank" rel="noopener noreferrer">rtl_tcp</a>
+          {" "}and{" "}
+          <a href="https://github.com/bemasher/rtlamr" target="_blank" rel="noopener noreferrer">rtlamr</a>
+        </p>
       </div>
       <div className="header-right">
+        {systemInfo && (
+          <div className="system-info-badge" title={`Platform: ${systemInfo.platform}`}>
+            <span className="system-info-dot"></span>
+            {systemInfo.hostname} · Uptime: {systemInfo.uptime_human}
+          </div>
+        )}
         <span className="label">Range</span>
         <div className="range-toggle-wrapper">
           <div className="range-toggle">
@@ -135,4 +168,3 @@ export const Header: React.FC<Props> = ({
     </header>
   );
 };
-

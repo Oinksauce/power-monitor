@@ -87,7 +87,7 @@ export const UsageByWeekdayChart: React.FC<Props> = ({
     <section className="card chart">
       <div className="card-header">
         <h2>Average consumption by day of week</h2>
-        {loading && <span className="pill">Loading…</span>}
+        {loading && <span className="spinner"></span>}
       </div>
       <div className="chart-body">
         {!loading && error && (

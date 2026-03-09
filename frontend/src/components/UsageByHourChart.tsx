@@ -90,7 +90,7 @@ export const UsageByHourChart: React.FC<Props> = ({
     <section className="card chart">
       <div className="card-header">
         <h2>Average consumption by hour of day</h2>
-        {loading && <span className="pill">Loading…</span>}
+        {loading && <span className="spinner"></span>}
       </div>
       <div className="chart-body">
         {!loading && error && (
