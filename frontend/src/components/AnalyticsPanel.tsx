@@ -5,6 +5,9 @@ import type { RangePreset } from "./Header";
 export interface AnalyticsSummary {
   peak_kw: number;
   baseload_kw: number;
+  high_impact_events: number;
+  events_kwh_impact: number;
+  phantom_cost_month: number;
 }
 
 interface Props {
@@ -55,16 +58,22 @@ export const AnalyticsPanel: React.FC<Props> = ({ activeMeters, range }) => {
               {summary ? (
                 <>
                   <div className="metric">
-                    <span className="metric-label">Estimated Base Load 
+                    <span className="metric-label">Estimated Base Load
                       <span title="The lowest rolling 1-hour average, indicating always-on phantom power" className="info-icon">ℹ️</span>
                     </span>
-                    <span className="metric-value baseload">{summary.baseload_kw.toFixed(2)} kW</span>
+                    <span className="metric-value baseload">
+                      {summary.baseload_kw.toFixed(2)} kW
+                      <div className="metric-subtext">≈ ${summary.phantom_cost_month.toFixed(2)} / mo</div>
+                    </span>
                   </div>
                   <div className="metric">
-                    <span className="metric-label">Peak Usage Spike
-                      <span title="The highest single recorded usage spike in the window" className="info-icon">ℹ️</span>
+                    <span className="metric-label">High-Impact Events
+                      <span title="Number of times sustained power draw exceeded the baseline by 500W+ for >5 mins" className="info-icon">ℹ️</span>
                     </span>
-                    <span className="metric-value peak">{summary.peak_kw.toFixed(2)} kW</span>
+                    <span className="metric-value events">
+                      {summary.high_impact_events}
+                      <div className="metric-subtext">{summary.events_kwh_impact.toFixed(1)} kWh impact</div>
+                    </span>
                   </div>
                 </>
               ) : (

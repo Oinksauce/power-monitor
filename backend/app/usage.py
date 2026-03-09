@@ -218,3 +218,47 @@ async def sweep_intervals_loop() -> None:
             break
         except Exception as e:
             logger.error("Periodic sweep failed: %s", e)
+
+def extract_high_consumption_events(
+    points: List[IntervalPoint], 
+    baseload_kw: float, 
+    threshold_w: float = 500.0, 
+    min_duration_minutes: float = 10.0
+) -> Tuple[int, float]:
+    """
+    Finds sustained periods where power draw exceeds baseload + threshold.
+    Returns (number_of_events, total_kwh_impact_of_events)
+    """
+    threshold_kw = baseload_kw + (threshold_w / 1000.0)
+    
+    events_count = 0
+    total_impact_kwh = 0.0
+    
+    current_event_kwh = 0.0
+    current_event_duration = 0.0
+    in_event = False
+    
+    for p in points:
+        if p.kw >= threshold_kw:
+            if not in_event:
+                in_event = True
+                current_event_kwh = 0.0
+                current_event_duration = 0.0
+            
+            # accumulate
+            current_event_kwh += p.delta_kwh
+            duration_hours = p.delta_kwh / p.kw if p.kw > 0 else 0
+            current_event_duration += duration_hours * 60.0
+        else:
+            if in_event:
+                if current_event_duration >= min_duration_minutes:
+                    events_count += 1
+                    total_impact_kwh += current_event_kwh
+                in_event = False
+                
+    # Check if last event finished at the end of the array
+    if in_event and current_event_duration >= min_duration_minutes:
+        events_count += 1
+        total_impact_kwh += current_event_kwh
+        
+    return events_count, total_impact_kwh

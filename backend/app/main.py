@@ -247,13 +247,21 @@ async def get_analytics_summary(
         peak_val = peak_gw.avg_kw if peak_gw else 0.0
         
         points = [IntervalPoint(timestamp=r.end_ts, delta_kwh=r.delta_kwh, kw=r.avg_kw, start_ts=r.start_ts) for r in m_rows]
-        from .usage import bucket_intervals
+        from .usage import bucket_intervals, extract_high_consumption_events
         buckets_1h = bucket_intervals(points, "1h")
         baseload = min([b[2] for b in buckets_1h if b[2] > 0], default=0.0)
         
+        events_count, events_kwh = extract_high_consumption_events(points, baseload, threshold_w=500.0, min_duration_minutes=5.0)
+        
+        phantom_kwh_month = baseload * 720.0 # 30 days * 24 hours
+        phantom_cost_month = phantom_kwh_month * 0.15 # $0.15 avg per kWh
+        
         results[mid] = {
             "peak_kw": peak_val,
-            "baseload_kw": baseload
+            "baseload_kw": baseload,
+            "high_impact_events": events_count,
+            "events_kwh_impact": events_kwh,
+            "phantom_cost_month": phantom_cost_month
         }
         
     return results
