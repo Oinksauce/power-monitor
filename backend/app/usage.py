@@ -361,7 +361,60 @@ async def sweep_events(db: AsyncSession) -> int:
         baseload = min([v for v in hourly_avg if v > 0], default=0.2)
         
         # Extract events
-        all_detected = extract_high_consumption_events(points, baseload_kw=baseload, threshold_w=500.0, min_duration_minutes=5.0)
+        all_detected = None
+        import os
+        from pathlib import Path
+        import json
+        from .mcp_client import ApplianceMCPClient
+        import logging
+        
+        mcp_logger = logging.getLogger("power_monitor.sweeper")
+        mcp_api_key = os.environ.get("MCP_API_KEY", "")
+        
+        if mcp_api_key:
+            try:
+                mcp_client = ApplianceMCPClient(
+                    mcp_api_key, 
+                    "https://lab.leapter.com/runtime/api/v1/f029ac21-992c-4047-871c-a032d21995cf/e358426a-27b3-4c90-921c-a74c364d095c/mcp/sse"
+                )
+                await mcp_client.initialize()
+                
+                # Format interval points for the MCP tool
+                mcp_points = [
+                    {
+                        "timestamp": p.timestamp.isoformat(), 
+                        "kw": p.kw, 
+                        "delta_kwh": p.delta_kwh,
+                        "start_ts": p.start_ts.isoformat() if p.start_ts else None
+                    }
+                    for p in points
+                ]
+                
+                # Load appliance signatures (only a slice to prevent LLM timeouts for now)
+                signatures = []
+                sig_path = Path(__file__).resolve().parent.parent.parent / "docs" / "appliance_signatures.json"
+                if sig_path.exists():
+                    sigs_data = json.loads(sig_path.read_text())
+                    signatures = sigs_data.get("appliance_signatures", [])[:5]
+                
+                mcp_result = await mcp_client.analyze_usage(mcp_points, signatures)
+                if mcp_result and isinstance(mcp_result, list) and all(isinstance(x, dict) and 'start_ts' in x and 'appliance' in x for x in mcp_result):
+                    mcp_logger.info(f"MCP Server successfully detected {len(mcp_result)} events.")
+                    # Format start/end timestamps properly
+                    for e in mcp_result:
+                        if isinstance(e.get("start_ts"), str):
+                            e["start_ts"] = datetime.fromisoformat(e["start_ts"])
+                        if isinstance(e.get("end_ts"), str):
+                            e["end_ts"] = datetime.fromisoformat(e["end_ts"])
+                    all_detected = mcp_result
+                else:
+                    mcp_logger.warning(f"MCP response was empty or invalid (not an event list). Falling back to local logic. Result: {mcp_result}")
+                await mcp_client.close()
+            except Exception as e:
+                mcp_logger.error(f"MCP Client failed during interval sweep: {e}. Falling back to local logic.")
+                
+        if all_detected is None:
+            all_detected = extract_high_consumption_events(points, baseload_kw=baseload, threshold_w=500.0, min_duration_minutes=5.0)
         
         # Filter only those that start AFTER last_event_end
         new_events = []
